@@ -418,7 +418,7 @@ class Trainer(Fit):
 
                     # return output, loss
                     # return pvalue, loss
-                    return log_loss_value
+                    return loss
                 except WavetrainException as exc:
                     print(str(exc))
                     logging.warning(str(exc))
