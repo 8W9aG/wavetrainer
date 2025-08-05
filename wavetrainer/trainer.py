@@ -25,6 +25,7 @@ from .model.model_router import ModelRouter
 from .model_type import ModelType, determine_model_type
 from .reducer.combined_reducer import CombinedReducer
 from .selector.selector import Selector
+from .threshold_callback import ThresholdCallback
 from .weights.combined_weights import CombinedWeights
 from .weights.weights import WEIGHTS_COLUMN
 from .windower.windower import Windower
@@ -541,10 +542,17 @@ class Trainer(Fit):
                         functools.partial(
                             validate_objective, idx=test_idx, series=test_series
                         ),
-                        n_trials=1,
+                        n_trials=self._trials,
                         timeout=None
                         if self._max_train_timeout is None
                         else self._max_train_timeout.total_seconds(),
+                        callbacks=[
+                            ThresholdCallback(
+                                0.0
+                                if study.best_trial.value is None
+                                else study.best_trial.value
+                            )
+                        ],
                     )
                 else:
                     break
