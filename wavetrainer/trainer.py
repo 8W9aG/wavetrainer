@@ -57,7 +57,6 @@ def _assign_bin(timestamp, bins: list[datetime.datetime]) -> int:
 def _best_trial(
     study: optuna.Study, dt: datetime.datetime | None = None
 ) -> optuna.trial.FrozenTrial:
-    """
     if dt is None:
         return study.best_trial
     min_trial = None
@@ -75,10 +74,6 @@ def _best_trial(
     if min_trial is None:
         min_trial = study.best_trial
     return min_trial
-    """
-    # best_brier = min(study.best_trials, key=lambda t: t.values[1])
-    # return best_brier
-    return study.best_trial
 
 
 class Trainer(Fit):

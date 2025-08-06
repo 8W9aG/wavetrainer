@@ -32,6 +32,7 @@ _DEFAULT_LOSS_FUNCTION = "default"
 _FOCALLOSS_LOSS_FUNCTION = "focalloss"
 _GAMMA_KEY = "focalloss_gamma"
 _ALPHA_KEY = "focalloss_alpha"
+_BORDER_COUNT_KEY = "border_count"
 
 
 class CatboostModel(Model):
@@ -52,6 +53,7 @@ class CatboostModel(Model):
     _loss_function: None | str
     _gamma: None | float
     _alpha: None | float
+    _border_count: None | int
 
     @classmethod
     def name(cls) -> str:
@@ -76,6 +78,7 @@ class CatboostModel(Model):
         self._loss_function = None
         self._gamma = None
         self._alpha = None
+        self._border_count = None
 
     @property
     def supports_importances(self) -> bool:
@@ -149,6 +152,7 @@ class CatboostModel(Model):
         if loss_function == _FOCALLOSS_LOSS_FUNCTION:
             self._gamma = trial.suggest_float(_GAMMA_KEY, 0.5, 5.0)
             self._alpha = trial.suggest_float(_ALPHA_KEY, 0.05, 0.95)
+        self._border_count = trial.suggest_int(_BORDER_COUNT_KEY, 2, 512)
 
     def load(self, folder: str) -> None:
         with open(
@@ -166,6 +170,7 @@ class CatboostModel(Model):
             self._loss_function = params.get(_LOSS_FUNCTION_KEY, _DEFAULT_LOSS_FUNCTION)
             self._gamma = params.get(_GAMMA_KEY)
             self._alpha = params.get(_ALPHA_KEY)
+            self._border_count = params.get(_BORDER_COUNT_KEY)
         with open(
             os.path.join(folder, _MODEL_CATEGORICAL_FEATURES_FILENAME), encoding="utf8"
         ) as handle:
@@ -190,6 +195,7 @@ class CatboostModel(Model):
                     _LOSS_FUNCTION_KEY: self._loss_function,
                     _GAMMA_KEY: self._gamma,
                     _ALPHA_KEY: self._alpha,
+                    _BORDER_COUNT_KEY: self._border_count,
                 },
                 handle,
             )
@@ -236,12 +242,17 @@ class CatboostModel(Model):
         )
         if self._best_iteration is not None:
             eval_pool = None
+        if eval_pool is None:
+            print("Eval Pool is null")
+        else:
+            print("Has Eval Pool")
         catboost.fit(
             train_pool,
             early_stopping_rounds=self._early_stopping_rounds,
-            verbose=False,
+            verbose=True,
             metric_period=100,
             eval_set=eval_pool,
+            use_best_model=True,
         )
         if self._best_iteration is None:
             self._best_iteration = catboost.get_best_iteration()
@@ -308,6 +319,7 @@ class CatboostModel(Model):
                     devices="0" if torch.cuda.is_available() else None,
                     loss_function=loss_function,
                     gpu_cat_features_storage="CpuPinnedMemory",
+                    border_count=self._border_count,
                 )
             case ModelType.REGRESSION:
                 return CatBoostRegressorWrapper(
@@ -321,6 +333,7 @@ class CatboostModel(Model):
                     task_type="GPU" if torch.cuda.is_available() else "CPU",
                     devices="0" if torch.cuda.is_available() else None,
                     gpu_cat_features_storage="CpuPinnedMemory",
+                    border_count=self._border_count,
                 )
             case ModelType.BINNED_BINARY:
                 return CatBoostClassifierWrapper(
@@ -335,6 +348,7 @@ class CatboostModel(Model):
                     devices="0" if torch.cuda.is_available() else None,
                     loss_function=loss_function,
                     gpu_cat_features_storage="CpuPinnedMemory",
+                    border_count=self._border_count,
                 )
             case ModelType.MULTI_CLASSIFICATION:
                 return CatBoostClassifierWrapper(
@@ -349,6 +363,7 @@ class CatboostModel(Model):
                     devices="0" if torch.cuda.is_available() else None,
                     loss_function=loss_function,
                     gpu_cat_features_storage="CpuPinnedMemory",
+                    border_count=self._border_count,
                 )
             case _:
                 raise ValueError(f"Unrecognised model type: {self._model_type}")
