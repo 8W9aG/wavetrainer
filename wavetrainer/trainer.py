@@ -558,7 +558,7 @@ class Trainer(Fit):
                     test_series,
                     True,
                     test_idx,
-                    True,
+                    False,
                 )
                 print(f"Saved model with value: {value}")
                 last_processed_dt = test_idx

@@ -240,8 +240,6 @@ class CatboostModel(Model):
             if eval_x is not None
             else None
         )
-        if self._best_iteration is not None:
-            eval_pool = None
         if eval_pool is None:
             print("Eval Pool is null")
         else:
