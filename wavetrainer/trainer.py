@@ -362,10 +362,9 @@ class Trainer(Fit):
                     print(f"Calibrating took {time.time() - start_calibrate}")
 
                     # Output
-                    cal_pred = calibrator.transform(
+                    y_pred = calibrator.transform(
                         y_pred if calibrator.predictions_as_x(y_test) else x_test
                     )
-                    cal_pred[PREDICTION_COLUMN] = y_pred[PREDICTION_COLUMN]
                     output = 0.0
                     loss = 0.0
                     pvalue = 0.0
