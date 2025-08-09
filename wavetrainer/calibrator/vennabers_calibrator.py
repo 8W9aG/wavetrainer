@@ -5,11 +5,12 @@ import os
 from typing import Self
 
 import joblib  # type: ignore
+import numpy as np
 import optuna
 import pandas as pd
 from venn_abers import VennAbers  # type: ignore
 
-from ..model.model import PROBABILITY_COLUMN_PREFIX, Model
+from ..model.model import PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX, Model
 from .calibrator import Calibrator
 
 _CALIBRATOR_FILENAME = "vennabers.joblib"
@@ -71,6 +72,7 @@ class VennabersCalibrator(Calibrator):
             [x for x in df.columns.values if x.startswith(PROBABILITY_COLUMN_PREFIX)]
         )
         probs = df[prob_columns].to_numpy()
+        df[PREDICTION_COLUMN] = probs.argmax(axis=1).astype(np.bool_)
         p_prime, _ = self._vennabers.predict_proba(probs)
         for i in range(p_prime.shape[1]):
             prob = p_prime[:, i]
