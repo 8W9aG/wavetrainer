@@ -144,14 +144,14 @@ class CatboostModel(Model):
         )
         self._early_stopping_rounds = trial.suggest_int(_EARLY_STOPPING_ROUNDS, 10, 500)
         self._best_iteration = trial.user_attrs.get(_BEST_ITERATION_KEY)
-        loss_functions = [_DEFAULT_LOSS_FUNCTION]
-        if not torch.cuda.is_available():
-            loss_functions.append(_FOCALLOSS_LOSS_FUNCTION)
-        loss_function = trial.suggest_categorical(_LOSS_FUNCTION_KEY, loss_functions)
-        self._loss_function = loss_function
-        if loss_function == _FOCALLOSS_LOSS_FUNCTION:
-            self._gamma = trial.suggest_float(_GAMMA_KEY, 0.5, 5.0)
-            self._alpha = trial.suggest_float(_ALPHA_KEY, 0.05, 0.95)
+        # loss_functions = [_DEFAULT_LOSS_FUNCTION]
+        # if not torch.cuda.is_available():
+        #    loss_functions.append(_FOCALLOSS_LOSS_FUNCTION)
+        # loss_function = trial.suggest_categorical(_LOSS_FUNCTION_KEY, loss_functions)
+        # self._loss_function = loss_function
+        # if loss_function == _FOCALLOSS_LOSS_FUNCTION:
+        #    self._gamma = trial.suggest_float(_GAMMA_KEY, 0.5, 5.0)
+        #    self._alpha = trial.suggest_float(_ALPHA_KEY, 0.05, 0.95)
         self._border_count = trial.suggest_int(_BORDER_COUNT_KEY, 2, 512)
 
     def load(self, folder: str) -> None:
