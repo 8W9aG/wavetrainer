@@ -152,7 +152,7 @@ class CatboostModel(Model):
         # if loss_function == _FOCALLOSS_LOSS_FUNCTION:
         #    self._gamma = trial.suggest_float(_GAMMA_KEY, 0.5, 5.0)
         #    self._alpha = trial.suggest_float(_ALPHA_KEY, 0.05, 0.95)
-        self._border_count = trial.suggest_int(_BORDER_COUNT_KEY, 2, 512)
+        # self._border_count = trial.suggest_int(_BORDER_COUNT_KEY, 2, 512)
 
     def load(self, folder: str) -> None:
         with open(
