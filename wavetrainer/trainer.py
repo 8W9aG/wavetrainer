@@ -536,7 +536,9 @@ class Trainer(Fit):
                         functools.partial(
                             validate_objective, idx=test_idx, series=test_series
                         ),
-                        n_trials=self._trials,
+                        n_trials=min(
+                            self._trials if self._trials is not None else 5, 5
+                        ),
                         timeout=None
                         if self._max_train_timeout is None
                         else self._max_train_timeout.total_seconds(),
