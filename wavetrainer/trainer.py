@@ -703,6 +703,8 @@ class Trainer(Fit):
             if self._dt_column is None:
                 df = df.set_index(old_index)
 
+        if isinstance(df.index, pd.MultiIndex):
+            df = df.droplevel(0)
         for col in input_df.columns.values:
             if col in df.columns.values:
                 continue
