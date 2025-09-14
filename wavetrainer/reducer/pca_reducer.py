@@ -63,7 +63,10 @@ class PCAReducer(Reducer):
         if self._embedding_cols is None:
             return self
         for k, v in self._pcas.items():
-            v.fit(df[self._embedding_dict[k]].dropna())
+            x_arr = df[self._embedding_dict[k]].dropna()
+            if len(x_arr) == 0:
+                continue
+            v.fit(x_arr)
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
