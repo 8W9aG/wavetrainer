@@ -74,8 +74,11 @@ class PCAReducer(Reducer):
             return df
         for k, v in self._pcas.items():
             cols = self._embedding_dict[k]
-            compressed_embedding = v.transform(df[cols].fillna(0.0))
-            embedding_len = compressed_embedding.shape[1]
-            df[cols[:embedding_len]] = compressed_embedding
-            df = df.drop(columns=cols[embedding_len:])
+            try:
+                compressed_embedding = v.transform(df[cols].fillna(0.0))
+                embedding_len = compressed_embedding.shape[1]
+                df[cols[:embedding_len]] = compressed_embedding
+                df = df.drop(columns=cols[embedding_len:])
+            except AttributeError:
+                pass
         return df
