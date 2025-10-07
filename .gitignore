@@ -174,3 +174,4 @@ cython_debug/
 .ruff_cache
 catboost_info
 coverage_html
+*.parquet

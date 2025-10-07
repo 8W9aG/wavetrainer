@@ -258,6 +258,7 @@ class CatboostModel(Model):
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        df.to_parquet("last_catboost_inference.parquet")
         for categorical_feature_column in self._categorical_features.keys():
             df[categorical_feature_column] = df[categorical_feature_column].astype(
                 "category"

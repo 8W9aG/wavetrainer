@@ -36,6 +36,7 @@ Python 3.11.6:
 - [kaleido](https://github.com/plotly/Kaleido)
 - [memory-profiler](https://github.com/pythonprofilers/memory_profiler)
 - [matplotlib](https://matplotlib.org/)
+- [pyarrow](https://arrow.apache.org/docs/python/index.html)
 
 ## Raison D'être :thought_balloon:
 

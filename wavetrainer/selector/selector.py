@@ -15,6 +15,7 @@ from ..model.model import Model
 from ..params import Params
 
 _SELECTOR_FILE = "selector.json"
+_FEATURE_IMPORTANCES_FILE = "feature_importances.json"
 
 
 class Selector(Params, Fit):
@@ -23,6 +24,7 @@ class Selector(Params, Fit):
     # pylint: disable=too-many-positional-arguments,too-many-arguments,consider-using-enumerate
 
     _selector: list[str] | None
+    _feature_importances: dict[str, float]
 
     def __init__(self, model: Model):
         super().__init__()
@@ -30,6 +32,7 @@ class Selector(Params, Fit):
         self._feature_ratio = 0.0
         self._steps = 0
         self._selector = None
+        self._feature_importances = {}
 
     def set_options(
         self, trial: optuna.Trial | optuna.trial.FrozenTrial, df: pd.DataFrame
@@ -44,6 +47,10 @@ class Selector(Params, Fit):
     def save(self, folder: str, trial: optuna.Trial | optuna.trial.FrozenTrial) -> None:
         with open(os.path.join(folder, _SELECTOR_FILE), "w", encoding="utf8") as handle:
             json.dump(self._selector, handle)
+        with open(
+            os.path.join(folder, _FEATURE_IMPORTANCES_FILE), "w", encoding="utf8"
+        ) as handle:
+            json.dump(self._feature_importances, handle)
 
     def fit(
         self,
@@ -70,6 +77,7 @@ class Selector(Params, Fit):
             feature_importances, _ = self._model.feature_importances(None)
             if not feature_importances:
                 return
+            self._feature_importances = feature_importances
             current_features = sorted(
                 [
                     x
