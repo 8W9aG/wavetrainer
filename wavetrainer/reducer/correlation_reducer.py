@@ -27,6 +27,8 @@ def _get_correlated_features_to_drop_chunked(
     Chunked correlation feature reducer to control memory usage.
     Applies correlation pruning within chunks, then across surviving features.
     """
+    print(f"correlation reduction with threshold {threshold}")
+    np.seterr(over="ignore")
     np.random.seed(random_seed)
     sorted_cols = sorted(find_non_categorical_numeric_columns(df))
     df_numeric = df[sorted_cols].copy()
