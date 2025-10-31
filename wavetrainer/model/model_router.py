@@ -164,6 +164,8 @@ class ModelRouter(Model):
             ):
                 break
             print(f"Accuracy: {accuracy_score(y, pred[PREDICTION_COLUMN])}")
+            if false_positive_reduction_steps == 0:
+                break
             pred["__wavetrain_correct"] = pred[PREDICTION_COLUMN] != y
             pred["__wavetrain_error_weight"] = pred["__wavetrain_correct"].astype(float)
             prob_columns = sorted(

@@ -515,7 +515,7 @@ class Trainer(Fit):
                     continue
                 if (
                     last_processed_dt is not None
-                    and test_idx < last_processed_dt + self._walkforward_timedelta
+                    and test_dt < last_processed_dt + self._walkforward_timedelta
                 ):
                     continue
 
@@ -592,6 +592,7 @@ class Trainer(Fit):
             _fit_column(y)
         else:
             for col in y.columns:
+                print(f"Training column: {col}")
                 _fit_column(y[col])
 
         return self
