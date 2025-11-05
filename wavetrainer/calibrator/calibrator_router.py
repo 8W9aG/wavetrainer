@@ -122,35 +122,38 @@ class CalibratorRouter(Calibrator):
             ],
             errors="ignore",
         )
-        ce = CalibrationEvaluator(
-            y.to_numpy(),
-            pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
-            outsample=True,
-            n_groups="auto",
-        )
-        hosmer_lemeshow = ce.hosmerlemeshow()
-        print(f"Hosmer Lemeshow: {hosmer_lemeshow}")
-        self._p_value = hosmer_lemeshow.pvalue
+        try:
+            ce = CalibrationEvaluator(
+                y.to_numpy(),
+                pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
+                outsample=True,
+                n_groups="auto",
+            )
+            hosmer_lemeshow = ce.hosmerlemeshow()
+            print(f"Hosmer Lemeshow: {hosmer_lemeshow}")
+            self._p_value = hosmer_lemeshow.pvalue
 
-        fraction_of_positives, mean_predicted_value = calibration_curve(
-            y.to_numpy(),
-            pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
-            n_bins=10,
-            strategy="uniform",
-        )
-        plt.figure(figsize=(8, 6))
-        plt.plot(mean_predicted_value, fraction_of_positives, "s-", label="Model")
-        plt.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
-        plt.xlabel("Mean predicted probability")
-        plt.ylabel("Fraction of positives")
-        plt.title("Calibration Curve (Reliability Diagram)")
-        plt.legend()
-        self._calibration_buffer = io.BytesIO()
-        plt.savefig(
-            self._calibration_buffer, format="png", dpi=300, bbox_inches="tight"
-        )
-        self._calibration_buffer.seek(0)
-        plt.close()
+            fraction_of_positives, mean_predicted_value = calibration_curve(
+                y.to_numpy(),
+                pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
+                n_bins=10,
+                strategy="uniform",
+            )
+            plt.figure(figsize=(8, 6))
+            plt.plot(mean_predicted_value, fraction_of_positives, "s-", label="Model")
+            plt.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
+            plt.xlabel("Mean predicted probability")
+            plt.ylabel("Fraction of positives")
+            plt.title("Calibration Curve (Reliability Diagram)")
+            plt.legend()
+            self._calibration_buffer = io.BytesIO()
+            plt.savefig(
+                self._calibration_buffer, format="png", dpi=300, bbox_inches="tight"
+            )
+            self._calibration_buffer.seek(0)
+            plt.close()
+        except ValueError as exc:
+            print(str(exc))
 
         return self
 
