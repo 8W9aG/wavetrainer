@@ -488,6 +488,16 @@ class Trainer(Fit):
             )
 
             last_processed_dt = None
+            # If we are resuming, find the last processed datetime
+            for trial in study.trials:
+                dt_idx = datetime.datetime.fromisoformat(
+                    trial.user_attrs[_IDX_USR_ATTR_KEY]
+                )
+                if last_processed_dt is None:
+                    last_processed_dt = dt_idx
+                else:
+                    last_processed_dt = max(last_processed_dt, dt_idx)
+
             for count, test_idx in tqdm.tqdm(
                 enumerate(dt_index[dt_index >= start_test_index])
             ):
