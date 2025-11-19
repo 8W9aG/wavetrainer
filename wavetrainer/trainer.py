@@ -378,9 +378,13 @@ class Trainer(Fit):
                         prob_col = PROBABILITY_COLUMN_PREFIX + str(1)
                         if prob_col in y_pred.columns.values.tolist():
                             loss = float(brier_score_loss(y_test, y_pred[[prob_col]]))
-                            log_loss_value = float(
-                                log_loss(y_test.astype(float), y_pred[[prob_col]])
-                            )
+                            log_loss_value = 1.0
+                            try:
+                                log_loss_value = float(
+                                    log_loss(y_test.astype(float), y_pred[[prob_col]])
+                                )
+                            except ValueError as exc:
+                                print(str(exc))
                             pvalue = calibrator.p_value
                             print(f"Brier: {loss}")
                             print(f"Log Loss: {log_loss_value}")
@@ -607,7 +611,9 @@ class Trainer(Fit):
 
         return self
 
-    def transform(self, df: pd.DataFrame, optimistic: bool = False) -> pd.DataFrame:
+    def transform(
+        self, df: pd.DataFrame, optimistic: bool = False, ignore_no_dates: bool = False
+    ) -> pd.DataFrame:
         """Predict the expected values of the data."""
         tqdm.tqdm.pandas(desc="Inferring...")
         input_df = df.copy()
@@ -632,6 +638,8 @@ class Trainer(Fit):
                     continue
                 dates.append(datetime.datetime.fromisoformat(date_str))
             if not dates:
+                if ignore_no_dates:
+                    continue
                 raise ValueError(f"no dates found for {column}.")
             dates = sorted(dates)
             bins: list[datetime.datetime] = sorted(
