@@ -392,6 +392,7 @@ class Trainer(Fit):
                         output = float(
                             crps(y_test.to_numpy(), y_q.to_numpy(), np.array(QUANTILES))
                         )
+                        loss = output
                         print(f"CRPS: {output}")
                     else:
                         output = float(f1_score(y_test, y_pred[[PREDICTION_COLUMN]]))
