@@ -10,6 +10,7 @@ import pickle
 import time
 from typing import Self
 
+import numpy as np
 import optuna
 import pandas as pd
 import tqdm
@@ -18,9 +19,12 @@ from sklearn.metrics import (accuracy_score, brier_score_loss, log_loss,
                              precision_score, r2_score, recall_score)
 
 from .calibrator.calibrator_router import CalibratorRouter
+from .crps import crps
 from .exceptions import WavetrainException
 from .fit import Fit
-from .model.model import PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX
+from .model.catboost.catboost_model import CatboostModel
+from .model.model import (PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX,
+                          QUANTILE_COLUMN_PREFIX, QUANTILES)
 from .model.model_router import ModelRouter
 from .model_type import ModelType, determine_model_type
 from .reducer.combined_reducer import CombinedReducer
@@ -111,6 +115,8 @@ class Trainer(Fit):
             validation_size = 0.15
         if cutoff_dt is None:
             cutoff_dt = datetime.datetime.now()
+        if allowed_models is None:
+            allowed_models = {CatboostModel.name()}
 
         params_file = os.path.join(self._folder, _PARAMS_FILENAME)
         if walkforward_timedelta is None:
@@ -369,9 +375,24 @@ class Trainer(Fit):
                     loss = 0.0
                     pvalue = 0.0
                     log_loss_value = 0.0
-                    if determine_model_type(y_series) == ModelType.REGRESSION:
+                    model_type = determine_model_type(y_series)
+                    if model_type == ModelType.REGRESSION:
                         output = float(r2_score(y_test, y_pred[[PREDICTION_COLUMN]]))
                         print(f"R2: {output}")
+                    elif model_type == ModelType.QUANTILE_REGRESSION:
+                        y_q = y_pred[
+                            sorted(
+                                [
+                                    x
+                                    for x in y_pred.columns.values.tolist()
+                                    if QUANTILE_COLUMN_PREFIX in x
+                                ]
+                            )
+                        ]
+                        output = float(
+                            crps(y_test.to_numpy(), y_q.to_numpy(), np.array(QUANTILES))
+                        )
+                        print(f"CRPS: {output}")
                     else:
                         output = float(f1_score(y_test, y_pred[[PREDICTION_COLUMN]]))
                         print(f"F1: {output}")
@@ -393,7 +414,7 @@ class Trainer(Fit):
                             f"Accuracy: {float(accuracy_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
                         )
                         print(
-                            f"Precision: {float(precision_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
+                            f"Precision: {float(precision_score(y_test, y_pred[[PREDICTION_COLUMN]], zero_division=0.0))}"  # type: ignore
                         )
                         print(
                             f"Recall: {float(recall_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
@@ -607,7 +628,9 @@ class Trainer(Fit):
         else:
             for col in y.columns:
                 print(f"Training column: {col}")
-                _fit_column(y[col])
+                y_train_series = y[col]
+                y_train_series.attrs = y.attrs
+                _fit_column(y_train_series)
 
         return self
 

@@ -10,6 +10,8 @@ from ..params import Params
 
 PREDICTION_COLUMN = "prediction"
 PROBABILITY_COLUMN_PREFIX = "probability_"
+QUANTILE_COLUMN_PREFIX = "quantile_"
+QUANTILES = sorted([0.01, 0.05, 0.25, 0.50, 0.75, 0.95, 0.99])
 
 
 class Model(Params, Fit):

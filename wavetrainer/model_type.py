@@ -4,6 +4,8 @@ from enum import StrEnum, auto
 
 import pandas as pd
 
+QUANTILE_KEY = "quantile"
+
 
 class ModelType(StrEnum):
     """The type of model being run."""
@@ -12,6 +14,7 @@ class ModelType(StrEnum):
     REGRESSION = auto()
     BINNED_BINARY = auto()
     MULTI_CLASSIFICATION = auto()
+    QUANTILE_REGRESSION = auto()
 
 
 def determine_model_type(y: pd.Series | pd.DataFrame) -> ModelType:
@@ -22,6 +25,8 @@ def determine_model_type(y: pd.Series | pd.DataFrame) -> ModelType:
     series = y if isinstance(y, pd.Series) else y[y.columns[0]]
 
     if series.dtype == float:
+        if series.attrs.get(QUANTILE_KEY, False):
+            return ModelType.QUANTILE_REGRESSION
         return ModelType.REGRESSION
     if series.dtype == int:
         return ModelType.MULTI_CLASSIFICATION

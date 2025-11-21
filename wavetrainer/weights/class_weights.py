@@ -49,7 +49,8 @@ class ClassWeights(Weights):
         if not isinstance(y, pd.Series):
             raise ValueError("y is not a series.")
 
-        if determine_model_type(y) == ModelType.REGRESSION:
+        model_type = determine_model_type(y)
+        if model_type in [ModelType.REGRESSION, ModelType.QUANTILE_REGRESSION]:
             self._class_weights = {}
             return self
 

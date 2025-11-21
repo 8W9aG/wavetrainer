@@ -157,10 +157,11 @@ class ModelRouter(Model):
         for i in range(max(false_positive_reduction_steps, 1)):
             print(f"False Positive Reduction Step: {i + 1}")
             pred = model.fit_transform(df, y=y, w=w, eval_x=eval_x, eval_y=eval_y)
+            model_type = determine_model_type(y)  # type: ignore
             if (
                 w is None
                 or y is None
-                or determine_model_type(y) == ModelType.REGRESSION
+                or (model_type in [ModelType.REGRESSION, ModelType.QUANTILE_REGRESSION])
             ):
                 break
             print(f"Accuracy: {accuracy_score(y, pred[PREDICTION_COLUMN])}")

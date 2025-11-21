@@ -7,6 +7,7 @@ import unittest
 import pandas as pd
 
 from wavetrainer.trainer import Trainer
+from wavetrainer.model_type import QUANTILE_KEY
 
 
 class TestTrainer(unittest.TestCase):
@@ -56,6 +57,29 @@ class TestTrainer(unittest.TestCase):
                 index=df.index,
             )
             y["y"] = y["y"].astype(bool)
+            trainer.fit(df, y=y)
+            df = trainer.transform(df)
+            print("df:")
+            print(df)
+
+    def test_quantile_trainer(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, allowed_models={"catboost"})
+            x_data = [i for i in range(101)]
+            x_index = [datetime.datetime(2022, 1, 1) + datetime.timedelta(days=i) for i in range(len(x_data))]
+            df = pd.DataFrame(
+                data={
+                    "column1": x_data,
+                },
+                index=x_index,
+            )
+            y = pd.DataFrame(
+                data={
+                    "y": [float(x + 1) for x in x_data],
+                },
+                index=df.index,
+            )
+            y.attrs = {QUANTILE_KEY: True}
             trainer.fit(df, y=y)
             df = trainer.transform(df)
             print("df:")

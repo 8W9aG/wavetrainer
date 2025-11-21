@@ -15,12 +15,14 @@ from sklearn.calibration import calibration_curve  # type: ignore
 from ..model.model import PROBABILITY_COLUMN_PREFIX, Model
 from ..model_type import ModelType, determine_model_type
 from .calibrator import Calibrator
+from .conformal_quantile_calibration import ConformalQuantileCalibrator
 from .vennabers_calibrator import VennabersCalibrator
 
 _CALIBRATOR_ROUTER_FILE = "calibrator_router.json"
 _CALIBRATOR_KEY = "calibrator"
 _CALIBRATORS = {
     VennabersCalibrator.name(): VennabersCalibrator,
+    ConformalQuantileCalibrator.name(): ConformalQuantileCalibrator,
 }
 
 
@@ -106,54 +108,61 @@ class CalibratorRouter(Calibrator):
         calibrator: Calibrator | None = None
         if y is None:
             raise ValueError("y is null")
-        if determine_model_type(y) == ModelType.REGRESSION:
+        model_type = determine_model_type(y)
+        if model_type == ModelType.REGRESSION:
             return self
+        elif model_type == ModelType.QUANTILE_REGRESSION:
+            calibrator = ConformalQuantileCalibrator(self._model)
         else:
             calibrator = VennabersCalibrator(self._model)
         calibrator.fit(df, y=y, w=w)
         self._calibrator = calibrator
 
         pred_prob = calibrator.transform(df)
-        pred_prob = pred_prob.drop(
-            columns=[
-                x
-                for x in pred_prob.columns.values.tolist()
-                if not x.startswith(PROBABILITY_COLUMN_PREFIX)
-            ],
-            errors="ignore",
-        )
-        try:
-            ce = CalibrationEvaluator(
-                y.to_numpy(),
-                pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
-                outsample=True,
-                n_groups="auto",
-            )
-            hosmer_lemeshow = ce.hosmerlemeshow()
-            print(f"Hosmer Lemeshow: {hosmer_lemeshow}")
-            self._p_value = hosmer_lemeshow.pvalue
 
-            fraction_of_positives, mean_predicted_value = calibration_curve(
-                y.to_numpy(),
-                pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
-                n_bins=10,
-                strategy="uniform",
+        if model_type == ModelType.BINARY:
+            pred_prob = pred_prob.drop(
+                columns=[
+                    x
+                    for x in pred_prob.columns.values.tolist()
+                    if not x.startswith(PROBABILITY_COLUMN_PREFIX)
+                ],
+                errors="ignore",
             )
-            plt.figure(figsize=(8, 6))
-            plt.plot(mean_predicted_value, fraction_of_positives, "s-", label="Model")
-            plt.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
-            plt.xlabel("Mean predicted probability")
-            plt.ylabel("Fraction of positives")
-            plt.title("Calibration Curve (Reliability Diagram)")
-            plt.legend()
-            self._calibration_buffer = io.BytesIO()
-            plt.savefig(
-                self._calibration_buffer, format="png", dpi=300, bbox_inches="tight"
-            )
-            self._calibration_buffer.seek(0)
-            plt.close()
-        except ValueError as exc:
-            print(str(exc))
+            try:
+                ce = CalibrationEvaluator(
+                    y.to_numpy(),
+                    pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
+                    outsample=True,
+                    n_groups="auto",
+                )
+                hosmer_lemeshow = ce.hosmerlemeshow()
+                print(f"Hosmer Lemeshow: {hosmer_lemeshow}")
+                self._p_value = hosmer_lemeshow.pvalue
+
+                fraction_of_positives, mean_predicted_value = calibration_curve(
+                    y.to_numpy(),
+                    pred_prob[PROBABILITY_COLUMN_PREFIX + str(1)].to_numpy(),
+                    n_bins=10,
+                    strategy="uniform",
+                )
+                plt.figure(figsize=(8, 6))
+                plt.plot(
+                    mean_predicted_value, fraction_of_positives, "s-", label="Model"
+                )
+                plt.plot([0, 1], [0, 1], "k--", label="Perfectly calibrated")
+                plt.xlabel("Mean predicted probability")
+                plt.ylabel("Fraction of positives")
+                plt.title("Calibration Curve (Reliability Diagram)")
+                plt.legend()
+                self._calibration_buffer = io.BytesIO()
+                plt.savefig(
+                    self._calibration_buffer, format="png", dpi=300, bbox_inches="tight"
+                )
+                self._calibration_buffer.seek(0)
+                plt.close()
+            except ValueError as exc:
+                print(str(exc))
 
         return self
 

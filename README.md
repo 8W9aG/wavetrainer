@@ -37,6 +37,8 @@ Python 3.11.6:
 - [memory-profiler](https://github.com/pythonprofilers/memory_profiler)
 - [matplotlib](https://matplotlib.org/)
 - [pyarrow](https://arrow.apache.org/docs/python/index.html)
+- [scores](https://scores.readthedocs.io/en/stable/)
+- [xarray](https://docs.xarray.dev/en/stable/)
 
 ## Raison D'être :thought_balloon:
 

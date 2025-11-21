@@ -12,7 +12,8 @@ import torch
 from catboost import CatBoost, Pool  # type: ignore
 
 from ...model_type import ModelType, determine_model_type
-from ..model import PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX, Model
+from ..model import (PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX,
+                     QUANTILE_COLUMN_PREFIX, QUANTILES, Model)
 from .catboost_classifier_wrap import CatBoostClassifierWrapper
 from .catboost_regressor_wrap import CatBoostRegressorWrapper
 
@@ -269,13 +270,25 @@ class CatboostModel(Model):
         )
         catboost = self._provide_catboost()
         pred = catboost.predict(pred_pool)
-        df = pd.DataFrame(
-            index=df.index,
-            data={
-                PREDICTION_COLUMN: pred.flatten(),
-            },
-        )
-        if self._model_type != ModelType.REGRESSION:
+        if self._model_type == ModelType.QUANTILE_REGRESSION:
+            df = pd.DataFrame(
+                index=df.index,
+                data={
+                    QUANTILE_COLUMN_PREFIX + str(x): pred[:, count]
+                    for count, x in enumerate(QUANTILES)
+                },
+            )
+        else:
+            df = pd.DataFrame(
+                index=df.index,
+                data={
+                    PREDICTION_COLUMN: pred.flatten(),
+                },
+            )
+        if self._model_type not in [
+            ModelType.REGRESSION,
+            ModelType.QUANTILE_REGRESSION,
+        ]:
             proba = catboost.predict_proba(pred_pool)  # type: ignore
             for i in range(proba.shape[1]):
                 df[f"{PROBABILITY_COLUMN_PREFIX}{i}"] = proba[:, i]
@@ -304,6 +317,9 @@ class CatboostModel(Model):
             and self._model_type != ModelType.REGRESSION
         ):
             loss_function = f"Focal:focal_alpha={self._alpha};focal_gamma={self._gamma}"
+        elif self._model_type == ModelType.QUANTILE_REGRESSION:
+            quantile_str = str(QUANTILES).replace("[", "").replace("]", "")
+            loss_function = f"MultiQuantile:alpha={quantile_str}"
         match self._model_type:
             case ModelType.BINARY:
                 return CatBoostClassifierWrapper(
@@ -363,6 +379,21 @@ class CatboostModel(Model):
                     loss_function=loss_function,
                     gpu_cat_features_storage="CpuPinnedMemory",
                     border_count=self._border_count,
+                )
+            case ModelType.QUANTILE_REGRESSION:
+                return CatBoostRegressorWrapper(
+                    iterations=iterations,
+                    learning_rate=self._learning_rate,
+                    depth=self._depth,
+                    l2_leaf_reg=self._l2_leaf_reg,
+                    boosting_type=self._boosting_type,
+                    early_stopping_rounds=self._early_stopping_rounds,
+                    metric_period=100,
+                    task_type="GPU" if torch.cuda.is_available() else "CPU",
+                    devices="0" if torch.cuda.is_available() else None,
+                    gpu_cat_features_storage="CpuPinnedMemory",
+                    border_count=self._border_count,
+                    loss_function=loss_function,  # type: ignore
                 )
             case _:
                 raise ValueError(f"Unrecognised model type: {self._model_type}")
