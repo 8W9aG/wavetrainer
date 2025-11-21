@@ -389,8 +389,8 @@ class CatboostModel(Model):
                     boosting_type=self._boosting_type,
                     early_stopping_rounds=self._early_stopping_rounds,
                     metric_period=100,
-                    task_type="GPU" if torch.cuda.is_available() else "CPU",
-                    devices="0" if torch.cuda.is_available() else None,
+                    task_type="CPU",
+                    devices=None,
                     gpu_cat_features_storage="CpuPinnedMemory",
                     border_count=self._border_count,
                     loss_function=loss_function,  # type: ignore
