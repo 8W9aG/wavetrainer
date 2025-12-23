@@ -306,9 +306,9 @@ class CatboostModel(Model):
     def _create_catboost(self) -> CatBoost:
         best_iteration = self._best_iteration
         iterations = best_iteration if best_iteration is not None else self._iterations
-        print(
-            f"Creating catboost model with depth {self._depth}, boosting type {self._boosting_type}, best iteration {best_iteration}, iterations {iterations}",
-        )
+        # print(
+        #    f"Creating catboost model with depth {self._depth}, boosting type {self._boosting_type}, best iteration {best_iteration}, iterations {iterations}",
+        # )
         loss_function = None
         if (
             self._loss_function == _FOCALLOSS_LOSS_FUNCTION

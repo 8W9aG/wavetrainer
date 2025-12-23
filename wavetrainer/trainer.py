@@ -399,11 +399,12 @@ class Trainer(Fit):
                         print(f"F1: {output}")
                         prob_col = PROBABILITY_COLUMN_PREFIX + str(1)
                         if prob_col in y_pred.columns.values.tolist():
-                            loss = float(brier_score_loss(y_test, y_pred[[prob_col]]))
+                            y_prob = y_pred[[prob_col]]
+                            loss = float(brier_score_loss(y_test, y_prob))
                             log_loss_value = 1.0
                             try:
                                 log_loss_value = float(
-                                    log_loss(y_test.astype(float), y_pred[[prob_col]])
+                                    log_loss(y_test.astype(float), y_prob)
                                 )
                             except ValueError as exc:
                                 print(str(exc))
@@ -411,6 +412,9 @@ class Trainer(Fit):
                             print(f"Brier: {loss}")
                             print(f"Log Loss: {log_loss_value}")
                             print(f"P-Value: {pvalue}")
+                            # print(
+                            #    f"Stratified Brier: {stratified_brier_score_loss(y_test, y_prob)}"
+                            # )
                         print(
                             f"Accuracy: {float(accuracy_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
                         )
@@ -700,7 +704,7 @@ class Trainer(Fit):
                     filtered_dates = [dates[-1]]
                 date_str = filtered_dates[-1].isoformat()
                 folder = os.path.join(column_path, date_str)
-                print(f"Loading {folder}")
+                # print(f"Loading {folder}")
 
                 try:
                     reducer = CombinedReducer(
@@ -733,16 +737,27 @@ class Trainer(Fit):
                 return group
 
             old_index = dt_index.copy()
-            df = df.groupby(
+            df_group = df.groupby(
                 dt_index.map(functools.partial(_assign_bin, bins=bins))
-            ).progress_apply(  # type: ignore
-                functools.partial(
-                    perform_predictions,
-                    column_path=column_path,
-                    column=column,
-                    dates=dates,
-                )
             )
+            if len(dates) == 1:
+                df = df_group.apply(  # type: ignore
+                    functools.partial(
+                        perform_predictions,
+                        column_path=column_path,
+                        column=column,
+                        dates=dates,
+                    )
+                )
+            else:
+                df = df_group.progress_apply(  # type: ignore
+                    functools.partial(
+                        perform_predictions,
+                        column_path=column_path,
+                        column=column,
+                        dates=dates,
+                    )
+                )
             if self._dt_column is None:
                 df = df.set_index(old_index)
 
