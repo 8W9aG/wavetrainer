@@ -643,7 +643,7 @@ class Trainer(Fit):
         self, df: pd.DataFrame, optimistic: bool = False, ignore_no_dates: bool = False
     ) -> pd.DataFrame:
         """Predict the expected values of the data."""
-        tqdm.tqdm.pandas(desc="Inferring...")
+        # tqdm.tqdm.pandas(desc="Inferring...")
         input_df = df.copy()
         df = df.reindex(sorted(df.columns), axis=1)
         feature_columns = df.columns.values
@@ -740,7 +740,7 @@ class Trainer(Fit):
             df_group = df.groupby(
                 dt_index.map(functools.partial(_assign_bin, bins=bins))
             )
-            if len(dates) == 1:
+            if len(df_group) == 1:
                 df = df_group.apply(  # type: ignore
                     functools.partial(
                         perform_predictions,
