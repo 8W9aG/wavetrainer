@@ -3,6 +3,7 @@
 # pylint: disable=too-many-arguments,too-many-positional-arguments,protected-access
 import json
 import os
+import warnings
 from typing import Self
 
 import joblib  # type: ignore
@@ -11,6 +12,7 @@ import pandas as pd
 import scipy  # type: ignore
 from sklearn.preprocessing import PowerTransformer  # type: ignore
 
+from ..exceptions import WavetrainException
 from .normaliser import Normaliser
 
 _POWERTRANSFORMER_REDUCER_FILE = "power_transformer_normaliser.joblib"
@@ -73,5 +75,12 @@ class PowerTransformerNormaliser(Normaliser):
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        df[self._pt_cols].values[:] = self._pt.transform(df[self._pt_cols].to_numpy())
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                df[self._pt_cols].values[:] = self._pt.transform(
+                    df[self._pt_cols].to_numpy()
+                )
+        except ValueError as exc:
+            raise WavetrainException() from exc
         return df
