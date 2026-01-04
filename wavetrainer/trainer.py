@@ -27,6 +27,7 @@ from .model.model import (PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX,
                           QUANTILE_COLUMN_PREFIX, QUANTILES)
 from .model.model_router import ModelRouter
 from .model_type import ModelType, determine_model_type
+from .normaliser.combined_normaliser import CombinedNormaliser
 from .reducer.combined_reducer import CombinedReducer
 from .selector.selector import Selector
 from .threshold_callback import ThresholdCallback
@@ -100,6 +101,7 @@ class Trainer(Fit):
         max_false_positive_reduction_steps: int | None = None,
         correlation_chunk_size: int | None = None,
         insert_nulls: bool = False,
+        use_power_transformer: bool = False,
     ):
         tqdm.tqdm.pandas()
 
@@ -205,6 +207,7 @@ class Trainer(Fit):
         self._max_false_positive_reduction_steps = max_false_positive_reduction_steps
         self._correlation_chunk_size = correlation_chunk_size
         self._insert_nulls = insert_nulls
+        self._use_power_transformer = use_power_transformer
 
     def _provide_study(self, column: str) -> optuna.Study:
         storage_name = f"sqlite:///{self._folder}/{column}/{_STUDYDB_FILENAME}"
@@ -304,6 +307,16 @@ class Trainer(Fit):
                         # return _BAD_OUTPUT, -_BAD_OUTPUT
                         return -_BAD_OUTPUT
                     print(f"Windowing took {time.time() - start_windower}")
+
+                    # Perform common normalisations
+                    start_normaliser = time.time()
+                    normaliser = CombinedNormaliser(
+                        use_power_transformer=self._use_power_transformer
+                    )
+                    normaliser.set_options(trial, x)
+                    x_train = normaliser.fit_transform(x_train, y=y_train)
+                    x_test = normaliser.transform(x_test)
+                    print(f"Normalising took {time.time() - start_normaliser}")
 
                     # Perform common reductions
                     start_reducer = time.time()
@@ -427,6 +440,7 @@ class Trainer(Fit):
 
                     if save:
                         windower.save(folder, trial)
+                        normaliser.save(folder, trial)
                         reducer.save(folder, trial)
                         weights.save(folder, trial)
                         model.save(folder, trial)
@@ -707,6 +721,11 @@ class Trainer(Fit):
                 # print(f"Loading {folder}")
 
                 try:
+                    normaliser = CombinedNormaliser(
+                        use_power_transformer=self._use_power_transformer
+                    )
+                    normaliser.load(folder)
+
                     reducer = CombinedReducer(
                         self.embedding_cols,
                         self._correlation_chunk_size,
@@ -723,7 +742,8 @@ class Trainer(Fit):
                     calibrator = CalibratorRouter(model)
                     calibrator.load(folder)
 
-                    x_pred = reducer.transform(group[feature_columns])
+                    x_pred = normaliser.transform(group[feature_columns])
+                    x_pred = reducer.transform(x_pred)
                     x_pred = selector.transform(x_pred)
                     y_pred = model.transform(x_pred)
                     y_pred = calibrator.transform(

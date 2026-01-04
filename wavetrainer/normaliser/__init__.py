@@ -1,0 +1,1 @@
+"""The wavetrain normaliser module."""

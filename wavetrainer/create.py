@@ -20,6 +20,7 @@ def create(
     max_false_positive_reduction_steps: int | None = None,
     correlation_chunk_size: int | None = None,
     insert_null: bool = False,
+    use_power_transformer: bool = False,
 ) -> Trainer:
     """Create a trainer."""
     return Trainer(
@@ -35,4 +36,5 @@ def create(
         max_false_positive_reduction_steps=max_false_positive_reduction_steps,
         correlation_chunk_size=correlation_chunk_size,
         insert_nulls=insert_null,
+        use_power_transformer=use_power_transformer,
     )
