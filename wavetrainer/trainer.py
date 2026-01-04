@@ -308,16 +308,6 @@ class Trainer(Fit):
                         return -_BAD_OUTPUT
                     print(f"Windowing took {time.time() - start_windower}")
 
-                    # Perform common normalisations
-                    start_normaliser = time.time()
-                    normaliser = CombinedNormaliser(
-                        use_power_transformer=self._use_power_transformer
-                    )
-                    normaliser.set_options(trial, x)
-                    x_train = normaliser.fit_transform(x_train, y=y_train)
-                    x_test = normaliser.transform(x_test)
-                    print(f"Normalising took {time.time() - start_normaliser}")
-
                     # Perform common reductions
                     start_reducer = time.time()
                     reducer = CombinedReducer(
@@ -329,6 +319,16 @@ class Trainer(Fit):
                     x_train = reducer.fit_transform(x_train, y=y_train)
                     x_test = reducer.transform(x_test)
                     print(f"Reducing took {time.time() - start_reducer}")
+
+                    # Perform common normalisations
+                    start_normaliser = time.time()
+                    normaliser = CombinedNormaliser(
+                        use_power_transformer=self._use_power_transformer
+                    )
+                    normaliser.set_options(trial, x)
+                    x_train = normaliser.fit_transform(x_train, y=y_train)
+                    x_test = normaliser.transform(x_test)
+                    print(f"Normalising took {time.time() - start_normaliser}")
 
                     # Calculate the row weights
                     start_row_weights = time.time()
@@ -721,17 +721,17 @@ class Trainer(Fit):
                 # print(f"Loading {folder}")
 
                 try:
-                    normaliser = CombinedNormaliser(
-                        use_power_transformer=self._use_power_transformer
-                    )
-                    normaliser.load(folder)
-
                     reducer = CombinedReducer(
                         self.embedding_cols,
                         self._correlation_chunk_size,
                         self._insert_nulls,
                     )
                     reducer.load(folder)
+
+                    normaliser = CombinedNormaliser(
+                        use_power_transformer=self._use_power_transformer
+                    )
+                    normaliser.load(folder)
 
                     model = ModelRouter(None, None)
                     model.load(folder)
@@ -742,8 +742,8 @@ class Trainer(Fit):
                     calibrator = CalibratorRouter(model)
                     calibrator.load(folder)
 
-                    x_pred = normaliser.transform(group[feature_columns])
-                    x_pred = reducer.transform(x_pred)
+                    x_pred = reducer.transform(group[feature_columns])
+                    x_pred = normaliser.transform(x_pred)
                     x_pred = selector.transform(x_pred)
                     y_pred = model.transform(x_pred)
                     y_pred = calibrator.transform(
