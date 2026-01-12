@@ -85,6 +85,11 @@ class Trainer(Fit):
     """A class for training and predicting from an array of data."""
 
     # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-statements,too-many-locals,too-many-branches,too-many-instance-attributes
+    _cached_reducers: dict[str, CombinedReducer]
+    _cached_normalizers: dict[str, CombinedNormaliser]
+    _cached_models: dict[str, ModelRouter]
+    _cached_selectors: dict[str, Selector]
+    _cached_calibrators: dict[str, CalibratorRouter]
 
     def __init__(
         self,
@@ -208,6 +213,11 @@ class Trainer(Fit):
         self._correlation_chunk_size = correlation_chunk_size
         self._insert_nulls = insert_nulls
         self._use_power_transformer = use_power_transformer
+        self._cached_reducers = {}
+        self._cached_normalizers = {}
+        self._cached_models = {}
+        self._cached_selectors = {}
+        self._cached_calibrators = {}
 
     def _provide_study(self, column: str) -> optuna.Study:
         storage_name = f"sqlite:///{self._folder}/{column}/{_STUDYDB_FILENAME}"
@@ -721,26 +731,11 @@ class Trainer(Fit):
                 # print(f"Loading {folder}")
 
                 try:
-                    reducer = CombinedReducer(
-                        self.embedding_cols,
-                        self._correlation_chunk_size,
-                        self._insert_nulls,
-                    )
-                    reducer.load(folder)
-
-                    normaliser = CombinedNormaliser(
-                        use_power_transformer=self._use_power_transformer
-                    )
-                    normaliser.load(folder)
-
-                    model = ModelRouter(None, None)
-                    model.load(folder)
-
-                    selector = Selector(model)
-                    selector.load(folder)
-
-                    calibrator = CalibratorRouter(model)
-                    calibrator.load(folder)
+                    reducer = self._provide_reducer(folder)
+                    normaliser = self._provide_normalizer(folder)
+                    model = self._provide_model(folder)
+                    selector = self._provide_selector(folder)
+                    calibrator = self._provide_calibrator(folder)
 
                     x_pred = reducer.transform(group[feature_columns])
                     x_pred = normaliser.transform(x_pred)
@@ -835,3 +830,44 @@ class Trainer(Fit):
                     logging.warning(str(exc))
 
         return feature_importances
+
+    def _provide_reducer(self, folder: str) -> CombinedReducer:
+        if folder not in self._cached_reducers:
+            reducer = CombinedReducer(
+                self.embedding_cols,
+                self._correlation_chunk_size,
+                self._insert_nulls,
+            )
+            reducer.load(folder)
+            self._cached_reducers[folder] = reducer
+        return self._cached_reducers[folder]
+
+    def _provide_normalizer(self, folder: str) -> CombinedNormaliser:
+        if folder not in self._cached_normalizers:
+            normalizer = CombinedNormaliser(
+                use_power_transformer=self._use_power_transformer
+            )
+            normalizer.load(folder)
+            self._cached_normalizers[folder] = normalizer
+        return self._cached_normalizers[folder]
+
+    def _provide_model(self, folder: str) -> ModelRouter:
+        if folder not in self._cached_models:
+            model = ModelRouter(None, None)
+            model.load(folder)
+            self._cached_models[folder] = model
+        return self._cached_models[folder]
+
+    def _provide_selector(self, folder: str) -> Selector:
+        if folder not in self._cached_selectors:
+            selector = Selector(self._provide_model(folder))
+            selector.load(folder)
+            self._cached_selectors[folder] = selector
+        return self._cached_selectors[folder]
+
+    def _provide_calibrator(self, folder: str) -> CalibratorRouter:
+        if folder not in self._cached_calibrators:
+            calibrator = CalibratorRouter(self._provide_model(folder))
+            calibrator.load(folder)
+            self._cached_calibrators[folder] = calibrator
+        return self._cached_calibrators[folder]

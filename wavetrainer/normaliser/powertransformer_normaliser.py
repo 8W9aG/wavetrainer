@@ -64,14 +64,16 @@ class PowerTransformerNormaliser(Normaliser):
         eval_x: pd.DataFrame | None = None,
         eval_y: pd.Series | pd.DataFrame | None = None,
     ) -> Self:
-        self._pt_cols = []
-        for col in df.columns.values.tolist():
-            try:
-                PowerTransformer().fit(df[[col]])
-                self._pt_cols.append(col)
-            except scipy.optimize._optimize.BracketError:
-                pass
-        self._pt.fit(df[self._pt_cols].to_numpy())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            self._pt_cols = []
+            for col in df.columns.values.tolist():
+                try:
+                    PowerTransformer().fit(df[[col]])
+                    self._pt_cols.append(col)
+                except scipy.optimize._optimize.BracketError:
+                    pass
+            self._pt.fit(df[self._pt_cols].to_numpy())
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
