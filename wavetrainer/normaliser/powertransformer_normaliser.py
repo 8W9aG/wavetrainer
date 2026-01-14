@@ -84,5 +84,6 @@ class PowerTransformerNormaliser(Normaliser):
                     df[self._pt_cols].to_numpy()
                 )
         except ValueError as exc:
+            print(exc)
             raise WavetrainException() from exc
         return df
