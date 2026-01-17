@@ -7,6 +7,7 @@ import warnings
 from typing import Self
 
 import joblib  # type: ignore
+import numpy as np
 import optuna
 import pandas as pd
 import scipy  # type: ignore
@@ -80,8 +81,11 @@ class PowerTransformerNormaliser(Normaliser):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
-                df[self._pt_cols].values[:] = self._pt.transform(
-                    df[self._pt_cols].to_numpy()
+                df[self._pt_cols].values[:] = np.nan_to_num(
+                    self._pt.transform(df[self._pt_cols].to_numpy()),
+                    nan=0.0,
+                    posinf=0.0,
+                    neginf=0.0,
                 )
         except ValueError as exc:
             print(exc)
