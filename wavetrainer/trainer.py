@@ -279,7 +279,6 @@ class Trainer(Fit):
             ) -> float:
                 nonlocal did_fit
                 print(f"Beginning trial for: {split_idx.isoformat()}")
-                did_fit = True
                 trial.set_user_attr(_IDX_USR_ATTR_KEY, split_idx.isoformat())
                 folder = os.path.join(
                     self._folder, str(y_series.name), split_idx.isoformat()
@@ -298,6 +297,7 @@ class Trainer(Fit):
                             # return tuple(trial_info["output"])
                             return tuple(trial_info["output"])[0]
                         print("Retraining for different trial number.")
+                did_fit = True
 
                 train_dt_index = dt_index[: len(x)]
                 x_train = x[train_dt_index < split_idx]  # type: ignore
