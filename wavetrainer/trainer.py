@@ -266,6 +266,7 @@ class Trainer(Fit):
                 os.mkdir(column_dir)
 
             study = self._provide_study(str(y_series.name))
+            did_fit = False
 
             def _fit(
                 trial: optuna.Trial | optuna.trial.FrozenTrial,
@@ -276,7 +277,9 @@ class Trainer(Fit):
                 no_evaluation: bool,
                 # ) -> tuple[float, float]:
             ) -> float:
+                nonlocal did_fit
                 print(f"Beginning trial for: {split_idx.isoformat()}")
+                did_fit = True
                 trial.set_user_attr(_IDX_USR_ATTR_KEY, split_idx.isoformat())
                 folder = os.path.join(
                     self._folder, str(y_series.name), split_idx.isoformat()
@@ -628,29 +631,30 @@ class Trainer(Fit):
                 print(f"Saved model with value: {value}")
                 last_processed_dt = test_idx
 
-            target_names = ["F1", "Brier"]
-            # fig = optuna.visualization.plot_pareto_front(
-            #    study, target_names=target_names
-            # )
-            # fig.write_image(
-            #    os.path.join(column_dir, "pareto_frontier.png"),
-            #    format="png",
-            #    width=800,
-            #    height=600,
-            # )
-            for target_name in target_names:
-                try:
-                    fig = optuna.visualization.plot_param_importances(
-                        study, target=lambda t: t.values[0], target_name=target_name
-                    )
-                    fig.write_image(
-                        os.path.join(column_dir, f"{target_name}_frontier.png"),
-                        format="png",
-                        width=800,
-                        height=600,
-                    )
-                except RuntimeError as exc:
-                    print(str(exc))
+            if did_fit:
+                target_names = ["F1", "Brier"]
+                # fig = optuna.visualization.plot_pareto_front(
+                #    study, target_names=target_names
+                # )
+                # fig.write_image(
+                #    os.path.join(column_dir, "pareto_frontier.png"),
+                #    format="png",
+                #    width=800,
+                #    height=600,
+                # )
+                for target_name in target_names:
+                    try:
+                        fig = optuna.visualization.plot_param_importances(
+                            study, target=lambda t: t.values[0], target_name=target_name
+                        )
+                        fig.write_image(
+                            os.path.join(column_dir, f"{target_name}_frontier.png"),
+                            format="png",
+                            width=800,
+                            height=600,
+                        )
+                    except RuntimeError as exc:
+                        print(str(exc))
 
         if isinstance(y, pd.Series):
             _fit_column(y)
