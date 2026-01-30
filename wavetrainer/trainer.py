@@ -750,7 +750,8 @@ class Trainer(Fit):
                     )
                     for new_column in y_pred.columns.values:
                         group["_".join([column, new_column])] = y_pred[new_column]
-                except FileNotFoundError as exc:
+                except (FileNotFoundError, AttributeError) as exc:
+                    print(f"Model {folder} failed:")
                     print(str(exc))
 
                 return group
