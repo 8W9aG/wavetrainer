@@ -6,7 +6,7 @@ tqdm>=4.67.1
 numpy>=1.26.4
 scipy>=1.15.2
 catboost>=1.2.7
-venn-abers>=1.4.6
+venn-abers==1.4.6
 pytz>=2025.1
 torch>=2.6.0
 tabpfn>=2.0.6
