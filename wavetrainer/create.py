@@ -21,6 +21,7 @@ def create(
     correlation_chunk_size: int | None = None,
     insert_null: bool = False,
     use_power_transformer: bool = False,
+    use_correlation_reducer: bool = True,
 ) -> Trainer:
     """Create a trainer."""
     return Trainer(
@@ -37,4 +38,5 @@ def create(
         correlation_chunk_size=correlation_chunk_size,
         insert_nulls=insert_null,
         use_power_transformer=use_power_transformer,
+        use_correlation_reducer=use_correlation_reducer,
     )
