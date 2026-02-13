@@ -107,6 +107,7 @@ class Trainer(Fit):
         correlation_chunk_size: int | None = None,
         insert_nulls: bool = False,
         use_power_transformer: bool = False,
+        use_correlation_reducer: bool = True,
     ):
         tqdm.tqdm.pandas()
 
@@ -213,6 +214,7 @@ class Trainer(Fit):
         self._correlation_chunk_size = correlation_chunk_size
         self._insert_nulls = insert_nulls
         self._use_power_transformer = use_power_transformer
+        self._use_correlation_reducer = use_correlation_reducer
         self._cached_reducers = {}
         self._cached_normalizers = {}
         self._cached_models = {}
@@ -327,6 +329,7 @@ class Trainer(Fit):
                         self.embedding_cols,
                         self._correlation_chunk_size,
                         self._insert_nulls,
+                        include_correlation_reducer=self._use_correlation_reducer,
                     )
                     reducer.set_options(trial, x)
                     x_train = reducer.fit_transform(x_train, y=y_train)
@@ -820,6 +823,7 @@ class Trainer(Fit):
                         self.embedding_cols,
                         self._correlation_chunk_size,
                         self._insert_nulls,
+                        include_correlation_reducer=self._use_correlation_reducer,
                     )
                     reducer.load(date_path)
 
@@ -846,6 +850,7 @@ class Trainer(Fit):
                 self.embedding_cols,
                 self._correlation_chunk_size,
                 self._insert_nulls,
+                include_correlation_reducer=self._use_correlation_reducer,
             )
             reducer.load(folder)
             self._cached_reducers[folder] = reducer

@@ -12,6 +12,7 @@ import pandas as pd
 from .constant_reducer import ConstantReducer
 from .correlation_reducer import CorrelationReducer
 from .duplicate_reducer import DuplicateReducer
+from .fast_correlation_based_reducer import FastCorrelationBasedReducer
 from .nonnumeric_reducer import NonNumericReducer
 from .pca_reducer import PCAReducer
 from .reducer import Reducer
@@ -36,6 +37,7 @@ class CombinedReducer(Reducer):
         embedding_cols: list[list[str]] | None,
         correlation_chunk_size: int | None,
         insert_null: bool = False,
+        include_correlation_reducer: bool = True,
     ):
         super().__init__()
         if correlation_chunk_size is None:
@@ -44,12 +46,12 @@ class CombinedReducer(Reducer):
             UnseenReducer(insert_null),
             NonNumericReducer(),
             PCAReducer(embedding_cols),
-            # ConstantReducer(),
-            # DuplicateReducer(),
-            CorrelationReducer(correlation_chunk_size=correlation_chunk_size),
-            # SmartCorrelationReducer(),
-            # SelectBySingleFeaturePerformanceReducer(),
+            FastCorrelationBasedReducer(),
         ]
+        if include_correlation_reducer:
+            self._reducers.append(
+                CorrelationReducer(correlation_chunk_size=correlation_chunk_size)
+            )
         self._folder = None
         self._embedding_cols = embedding_cols
         self._correlation_chunk_size = correlation_chunk_size
@@ -90,6 +92,8 @@ class CombinedReducer(Reducer):
                     self._reducers.append(SelectBySingleFeaturePerformanceReducer())
                 elif reducer_name == PCAReducer.name():
                     self._reducers.append(PCAReducer(self._embedding_cols))
+                elif reducer_name == FastCorrelationBasedReducer.name():
+                    self._reducers.append(FastCorrelationBasedReducer())
         for reducer in self._reducers:
             reducer.load(folder)
         self._folder = folder
