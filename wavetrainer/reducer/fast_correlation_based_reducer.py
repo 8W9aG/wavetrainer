@@ -96,7 +96,12 @@ class FastCorrelationBasedReducer(Reducer):
         self, trial: optuna.Trial | optuna.trial.FrozenTrial, df: pd.DataFrame
     ) -> None:
         # Range matching the typical usage for this algorithm
-        self._threshold = trial.suggest_float(_FAST_CORRELATION_THRESHOLD, 0.7, 0.99)
+        try:
+            self._threshold = trial.suggest_float(
+                _FAST_CORRELATION_THRESHOLD, 0.7, 0.99
+            )
+        except ValueError:
+            self._threshold = 0.7
 
     def load(self, folder: str) -> None:
         with open(
