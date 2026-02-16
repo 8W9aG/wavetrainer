@@ -96,7 +96,12 @@ class CorrelationReducer(Reducer):
     def set_options(
         self, trial: optuna.Trial | optuna.trial.FrozenTrial, df: pd.DataFrame
     ) -> None:
-        self._threshold = trial.suggest_float(_CORRELATION_REDUCER_THRESHOLD, 0.7, 0.99)
+        try:
+            self._threshold = trial.suggest_float(
+                _CORRELATION_REDUCER_THRESHOLD, 0.7, 0.99
+            )
+        except ValueError:
+            self._threshold = 0.7
 
     def load(self, folder: str) -> None:
         with open(
