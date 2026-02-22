@@ -22,6 +22,7 @@ def create(
     insert_null: bool = False,
     use_power_transformer: bool = False,
     use_correlation_reducer: bool = True,
+    n_jobs: int = 1,
 ) -> Trainer:
     """Create a trainer."""
     return Trainer(
@@ -39,4 +40,5 @@ def create(
         insert_nulls=insert_null,
         use_power_transformer=use_power_transformer,
         use_correlation_reducer=use_correlation_reducer,
+        n_jobs=n_jobs,
     )

@@ -108,6 +108,7 @@ class Trainer(Fit):
         insert_nulls: bool = False,
         use_power_transformer: bool = False,
         use_correlation_reducer: bool = True,
+        n_jobs: int = 1,
     ):
         tqdm.tqdm.pandas()
 
@@ -215,6 +216,7 @@ class Trainer(Fit):
         self._insert_nulls = insert_nulls
         self._use_power_transformer = use_power_transformer
         self._use_correlation_reducer = use_correlation_reducer
+        self._n_jobs = n_jobs
         self._cached_reducers = {}
         self._cached_normalizers = {}
         self._cached_models = {}
@@ -524,6 +526,7 @@ class Trainer(Fit):
                     timeout=None
                     if self._max_train_timeout is None
                     else self._max_train_timeout.total_seconds(),
+                    n_jobs=self._n_jobs,
                 )
             while (
                 _best_trial(study).values is None
@@ -537,6 +540,7 @@ class Trainer(Fit):
                     timeout=None
                     if self._max_train_timeout is None
                     else self._max_train_timeout.total_seconds(),
+                    n_jobs=self._n_jobs,
                 )
 
             train_len = len(df[dt_index < start_test_index])
@@ -619,6 +623,7 @@ class Trainer(Fit):
                                 else study.best_trial.value
                             )
                         ],
+                        n_jobs=self._n_jobs,
                     )
                 else:
                     break
