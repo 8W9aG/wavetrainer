@@ -14,6 +14,7 @@ import numpy as np
 import optuna
 import pandas as pd
 import tqdm
+from joblib import Parallel, delayed  # type: ignore
 from sklearn.metrics import f1_score  # type: ignore
 from sklearn.metrics import (accuracy_score, brier_score_loss, log_loss,
                              precision_score, r2_score, recall_score)
@@ -676,10 +677,13 @@ class Trainer(Fit):
         return self
 
     def transform(
-        self, df: pd.DataFrame, optimistic: bool = False, ignore_no_dates: bool = False
+        self,
+        df: pd.DataFrame,
+        optimistic: bool = False,
+        ignore_no_dates: bool = False,
+        n_jobs: int = -1,
     ) -> pd.DataFrame:
-        """Predict the expected values of the data."""
-        # tqdm.tqdm.pandas(desc="Inferring...")
+        """Predict the expected values of the data running columns in parallel."""
         input_df = df.copy()
         df = df.reindex(sorted(df.columns), axis=1)
         feature_columns = df.columns.values
@@ -689,22 +693,24 @@ class Trainer(Fit):
             else pd.DatetimeIndex(pd.to_datetime(df[self._dt_column]))
         )
 
-        for column in os.listdir(self._folder):
+        # --- INNER FUNCTION 1: Process a single column directory ---
+        def process_single_column(column: str):
             column_path = os.path.join(self._folder, column)
             if not os.path.isdir(column_path):
-                continue
+                return None
+
             dates = []
             for date_str in os.listdir(column_path):
                 date_path = os.path.join(column_path, date_str)
-                if not os.path.isdir(date_path):
-                    continue
-                if not os.listdir(date_path):
+                if not os.path.isdir(date_path) or not os.listdir(date_path):
                     continue
                 dates.append(datetime.datetime.fromisoformat(date_str))
+
             if not dates:
                 if ignore_no_dates:
-                    continue
+                    return None
                 raise ValueError(f"no dates found for {column}.")
+
             dates = sorted(dates)
             bins: list[datetime.datetime] = sorted(
                 [dt_index.min().to_pydatetime()]
@@ -712,12 +718,15 @@ class Trainer(Fit):
                 + [(dt_index.max() + pd.Timedelta(days=1)).to_pydatetime()]
             )
 
+            # --- INNER FUNCTION 2: The actual prediction logic ---
             def perform_predictions(
                 group: pd.DataFrame,
                 column_path: str,
                 column: str,
                 dates: list[datetime.datetime],
             ) -> pd.DataFrame:
+                group = group.copy()  # Avoid SettingWithCopyWarning in parallel threads
+
                 group_dt_index = (
                     group.index
                     if self._dt_column is None
@@ -740,7 +749,6 @@ class Trainer(Fit):
                     filtered_dates = [dates[-1]]
                 date_str = filtered_dates[-1].isoformat()
                 folder = os.path.join(column_path, date_str)
-                # print(f"Loading {folder}")
 
                 try:
                     reducer = self._provide_reducer(folder)
@@ -756,24 +764,27 @@ class Trainer(Fit):
                     y_pred = calibrator.transform(
                         y_pred if calibrator.predictions_as_x(None) else x_pred
                     )
+
                     for new_column in y_pred.columns.values:
                         group["_".join([column, new_column])] = y_pred[new_column]
-                except FileNotFoundError as exc:
-                    print(f"Model {folder} failed:")
-                    print(str(exc))
-                except AttributeError as exc:
-                    print(f"Model {folder} failed:")
-                    print(str(exc))
-                    raise exc
+
+                except (FileNotFoundError, AttributeError) as exc:
+                    # We keep this error print so you don't lose debugging info,
+                    # but removed the standard progress print to keep tqdm clean.
+                    print(f"\nModel {folder} failed:\n{str(exc)}")
+                    if isinstance(exc, AttributeError):
+                        raise exc
 
                 return group
 
+            # Apply the grouped predictions
             old_index = dt_index.copy()
             df_group = df.groupby(
                 dt_index.map(functools.partial(_assign_bin, bins=bins))
             )
+
             if len(df_group) == 1:
-                df = df_group.apply(  # type: ignore
+                df_out = df_group.apply(
                     functools.partial(
                         perform_predictions,
                         column_path=column_path,
@@ -782,7 +793,8 @@ class Trainer(Fit):
                     )
                 )
             else:
-                df = df_group.progress_apply(  # type: ignore
+                # Using standard apply to avoid messy parallel tqdm console output
+                df_out = df_group.apply(
                     functools.partial(
                         perform_predictions,
                         column_path=column_path,
@@ -790,15 +802,45 @@ class Trainer(Fit):
                         dates=dates,
                     )
                 )
-            if self._dt_column is None:
-                df = df.set_index(old_index)
 
-        if isinstance(df.index, pd.MultiIndex):
-            df = df.droplevel(0)
+            if self._dt_column is None:
+                df_out = df_out.set_index(old_index)
+
+            if isinstance(df_out.index, pd.MultiIndex):
+                df_out = df_out.droplevel(0)
+
+            # EXTRACT: Only return the new prediction columns to prevent heavy IPC memory overhead
+            new_cols = [c for c in df_out.columns if c not in df.columns]
+            return df_out[new_cols]
+
+        # --- PARALLEL EXECUTION ---
+        columns_to_process = os.listdir(self._folder)
+
+        # Wrap the Parallel call in tqdm and set return_as="generator"
+        parallel_results = list(
+            tqdm.tqdm(
+                Parallel(n_jobs=n_jobs, return_as="generator")(
+                    delayed(process_single_column)(column)
+                    for column in columns_to_process
+                ),
+                total=len(columns_to_process),
+                desc="Inferring Columns",
+            )
+        )
+
+        # Filter out skipped directories (None) and empty dataframes
+        valid_results = [
+            res for res in parallel_results if res is not None and not res.empty
+        ]
+
+        # Stitch all the newly created columns back onto the main dataframe
+        if valid_results:
+            df = pd.concat([df] + valid_results, axis=1)
+
+        # Ensure no original input columns were dropped
         for col in input_df.columns.values:
-            if col in df.columns.values:
-                continue
-            df[col] = input_df[col]
+            if col not in df.columns.values:
+                df[col] = input_df[col]
 
         return df
 
