@@ -269,7 +269,7 @@ class CatboostModel(Model):
             cat_features=df.select_dtypes(include="category").columns.tolist(),
         )
         catboost = self._provide_catboost()
-        pred = catboost.predict(pred_pool)
+        pred = catboost.predict(pred_pool, thread_count=1)
         if self._model_type == ModelType.QUANTILE_REGRESSION:
             df = pd.DataFrame(
                 index=df.index,
