@@ -21,6 +21,7 @@ from sklearn.metrics import (accuracy_score, brier_score_loss, log_loss,
 
 from .calibrator.calibrator_router import CalibratorRouter
 from .crps import crps
+from .drift_mixed_sampler import DriftMixedSampler
 from .exceptions import WavetrainException
 from .fit import Fit
 from .model.catboost.catboost_model import CatboostModel
@@ -50,6 +51,7 @@ _IDX_USR_ATTR_KEY = "idx"
 _DT_COLUMN_KEY = "dt_column"
 _MAX_FALSE_POSITIVE_REDUCTION_STEPS_KEY = "max_false_positive_reduction_steps"
 _CORRELATION_CHUNK_SIZE_KEY = "correlation_chunk_size"
+_RANDOM_MIX_RATIO_KEY = "random_mix_ratio"
 _BAD_OUTPUT = -1000.0
 
 
@@ -109,6 +111,7 @@ class Trainer(Fit):
         insert_nulls: bool = False,
         use_power_transformer: bool = False,
         use_correlation_reducer: bool = True,
+        random_mix_ratio: float = 0.20,
         n_jobs: int = 1,
     ):
         tqdm.tqdm.pandas()
@@ -168,6 +171,7 @@ class Trainer(Fit):
                     )
                 if correlation_chunk_size is None:
                     correlation_chunk_size = params.get(_CORRELATION_CHUNK_SIZE_KEY)
+                random_mix_ratio = params.get(_RANDOM_MIX_RATIO_KEY, 0.20)
         else:
             with open(params_file, "w", encoding="utf8") as handle:
                 validation_size_value = None
@@ -200,6 +204,7 @@ class Trainer(Fit):
                         _DT_COLUMN_KEY: dt_column,
                         _MAX_FALSE_POSITIVE_REDUCTION_STEPS_KEY: max_false_positive_reduction_steps,
                         _CORRELATION_CHUNK_SIZE_KEY: correlation_chunk_size,
+                        _RANDOM_MIX_RATIO_KEY: random_mix_ratio,
                     },
                     handle,
                 )
@@ -217,6 +222,7 @@ class Trainer(Fit):
         self._insert_nulls = insert_nulls
         self._use_power_transformer = use_power_transformer
         self._use_correlation_reducer = use_correlation_reducer
+        self._random_mix_ratio = random_mix_ratio
         self._n_jobs = n_jobs
         self._cached_reducers = {}
         self._cached_normalizers = {}
@@ -231,6 +237,12 @@ class Trainer(Fit):
         if os.path.exists(sampler_file):
             with open(sampler_file, "rb") as handle:
                 restored_sampler = pickle.load(handle)
+
+        if restored_sampler is None:
+            restored_sampler = DriftMixedSampler(
+                random_mix_ratio=self._random_mix_ratio
+            )
+
         return optuna.create_study(
             study_name="wavetrain",
             storage=storage_name,
@@ -641,6 +653,10 @@ class Trainer(Fit):
                 last_processed_dt = test_idx
 
             if did_fit:
+                sampler_file = os.path.join(column_dir, _SAMPLER_FILENAME)
+                with open(sampler_file, "wb") as handle:
+                    pickle.dump(study.sampler, handle)
+
                 target_names = ["F1", "Brier"]
                 # fig = optuna.visualization.plot_pareto_front(
                 #    study, target_names=target_names
