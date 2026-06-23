@@ -92,6 +92,35 @@ class PowerTransformerNormaliser(Normaliser):
                     neginf=0.0,
                 )
         except ValueError as exc:
-            print(exc)
+            # --- Diagnostic Check ---
+            subset = df[self._pt_cols]
+
+            print("\n" + "=" * 50)
+            print("🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨")
+
+            # Check specifically for infinite values
+            inf_mask = np.isinf(subset)
+            if inf_mask.any().any():
+                bad_cols = [col for col in subset.columns if inf_mask[col].any()]
+                print(f"-> Found infinities (inf or -inf) in columns: {bad_cols}")
+
+                for col in bad_cols:
+                    print(f"\nOffending values in '{col}':")
+                    # Filter and print only the rows where this specific column has an infinity
+                    print(subset[col][inf_mask[col]])
+            else:
+                # Fallback: If it's not strictly 'inf', it's an unusually large number
+                print(
+                    "-> No strict infinities found. Values are likely exceeding float64 capacity."
+                )
+                print(
+                    "\nTop 5 largest absolute values by column to help you hunt it down:"
+                )
+                print(subset.abs().max().sort_values(ascending=False).head(5))
+
+            print("=" * 50 + "\n")
+
+            # Raise the exception as usual so the pipeline stops and you can read the logs
             raise WavetrainException() from exc
+
         return df
