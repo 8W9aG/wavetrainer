@@ -11,6 +11,7 @@ import numpy as np
 import optuna
 import pandas as pd
 import scipy  # type: ignore
+from sklearn.exceptions import InconsistentVersionWarning  # type: ignore
 from sklearn.preprocessing import PowerTransformer  # type: ignore
 
 from ..exceptions import WavetrainException
@@ -40,7 +41,10 @@ class PowerTransformerNormaliser(Normaliser):
         pass
 
     def load(self, folder: str) -> None:
-        self._pt = joblib.load(os.path.join(folder, _POWERTRANSFORMER_REDUCER_FILE))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=InconsistentVersionWarning)
+            self._pt = joblib.load(os.path.join(folder, _POWERTRANSFORMER_REDUCER_FILE))
+
         with open(
             os.path.join(folder, _POWERTRANSFORMER_COLUMNS_FILENAME),
             "r",
