@@ -94,33 +94,38 @@ class PowerTransformerNormaliser(Normaliser):
         except ValueError as exc:
             # --- Diagnostic Check ---
             subset = df[self._pt_cols]
-
-            print("\n" + "=" * 50)
-            print("🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨")
-
-            # Check specifically for infinite values
             inf_mask = np.isinf(subset)
-            if inf_mask.any().any():
-                bad_cols = [col for col in subset.columns if inf_mask[col].any()]
-                print(f"-> Found infinities (inf or -inf) in columns: {bad_cols}")
 
+            # Build a single error message string
+            log_lines = ["\n" + "=" * 50, "🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨"]
+
+            bad_cols = [col for col in subset.columns if inf_mask[col].any()]
+            if bad_cols:
+                log_lines.append(
+                    f"-> Found infinities (inf or -inf) in columns: {bad_cols}"
+                )
                 for col in bad_cols:
-                    print(f"\nOffending values in '{col}':")
-                    # Filter and print only the rows where this specific column has an infinity
-                    print(subset[col][inf_mask[col]])
+                    log_lines.append(f"\nOffending values in '{col}':")
+                    log_lines.append(str(subset[col][inf_mask[col]]))
             else:
-                # Fallback: If it's not strictly 'inf', it's an unusually large number
-                print(
+                log_lines.append(
                     "-> No strict infinities found. Values are likely exceeding float64 capacity."
                 )
-                print(
+                log_lines.append(
                     "\nTop 5 largest absolute values by column to help you hunt it down:"
                 )
-                print(subset.abs().max().sort_values(ascending=False).head(5))
+                log_lines.append(
+                    str(subset.abs().max().sort_values(ascending=False).head(5))
+                )
 
-            print("=" * 50 + "\n")
+            log_lines.append("=" * 50 + "\n")
 
-            # Raise the exception as usual so the pipeline stops and you can read the logs
-            raise WavetrainException() from exc
+            full_error_msg = "\n".join(log_lines)
+
+            # 1. Try to print and force flush the buffer
+            print(full_error_msg, flush=True)
+
+            # 2. Attach the message to the exception so it survives the Loky crash
+            raise WavetrainException(full_error_msg) from exc
 
         return df
