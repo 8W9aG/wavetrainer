@@ -420,9 +420,11 @@ class Trainer(Fit):
                     pvalue = 0.0
                     log_loss_value = 0.0
                     model_type = determine_model_type(y_series)
+                    stats = {}
                     if model_type == ModelType.REGRESSION:
                         output = float(r2_score(y_test, y_pred[[PREDICTION_COLUMN]]))
                         print(f"R2: {output}")
+                        stats["R2"] = output
                     elif model_type == ModelType.QUANTILE_REGRESSION:
                         y_q = y_pred[
                             sorted(
@@ -438,6 +440,7 @@ class Trainer(Fit):
                         )
                         loss = output
                         print(f"CRPS: {output}")
+                        stats["CRPS"] = output
                     else:
                         output = float(f1_score(y_test, y_pred[[PREDICTION_COLUMN]]))
                         print(f"F1: {output}")
@@ -456,18 +459,33 @@ class Trainer(Fit):
                             print(f"Brier: {loss}")
                             print(f"Log Loss: {log_loss_value}")
                             print(f"P-Value: {pvalue}")
+                            stats["brier"] = loss
+                            stats["log_loss"] = log_loss_value
+                            stats["p_value"] = pvalue
                             # print(
                             #    f"Stratified Brier: {stratified_brier_score_loss(y_test, y_prob)}"
                             # )
-                        print(
-                            f"Accuracy: {float(accuracy_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
+                        accuracy_value = float(
+                            accuracy_score(y_test, y_pred[[PREDICTION_COLUMN]])
                         )
-                        print(
-                            f"Precision: {float(precision_score(y_test, y_pred[[PREDICTION_COLUMN]], zero_division=0.0))}"  # type: ignore
+                        precision_value = float(
+                            precision_score(
+                                y_test,
+                                y_pred[[PREDICTION_COLUMN]],
+                                zero_division=0.0,  # type: ignore
+                            )
                         )
-                        print(
-                            f"Recall: {float(recall_score(y_test, y_pred[[PREDICTION_COLUMN]]))}"
+                        recall_value = float(
+                            recall_score(y_test, y_pred[[PREDICTION_COLUMN]])
                         )
+                        print(f"Accuracy: {accuracy_value}")
+                        print(
+                            f"Precision: {precision_value}"  # type: ignore
+                        )
+                        print(f"Recall: {recall_value}")
+                        stats["accuracy"] = accuracy_value
+                        stats["precision"] = precision_value
+                        stats["recall"] = recall_value
 
                     if save:
                         windower.save(folder, trial)
@@ -483,6 +501,13 @@ class Trainer(Fit):
                                     "number": trial.number,
                                     "output": [output, loss],
                                 },
+                                handle,
+                            )
+                        with open(
+                            os.path.join(folder, "stats.json"), "w", encoding="utf8"
+                        ) as handle:
+                            json.dump(
+                                stats,
                                 handle,
                             )
 
