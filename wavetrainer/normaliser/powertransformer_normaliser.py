@@ -97,7 +97,7 @@ class PowerTransformerNormaliser(Normaliser):
             inf_mask = np.isinf(subset)
 
             # Build a single error message string
-            log_lines = ["\n" + "=" * 50, "🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨"]
+            log_lines = [str(exc), "\n" + "=" * 50, "🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨"]
 
             bad_cols = [col for col in subset.columns if inf_mask[col].any()]
             if bad_cols:

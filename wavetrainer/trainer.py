@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import pickle
+import threading
 import time
 from typing import Self
 
@@ -53,6 +54,26 @@ _MAX_FALSE_POSITIVE_REDUCTION_STEPS_KEY = "max_false_positive_reduction_steps"
 _CORRELATION_CHUNK_SIZE_KEY = "correlation_chunk_size"
 _RANDOM_MIX_RATIO_KEY = "random_mix_ratio"
 _BAD_OUTPUT = -1000.0
+
+# Optuna runs trials for the same walk-forward fold concurrently across
+# threads (study.optimize(..., n_jobs=...)), and those trials share the same
+# fold folder path. Creating (os.makedirs) and tearing down (os.removedirs)
+# that folder must be serialised per path, otherwise one thread can remove
+# the directory out from under another thread that just created or is still
+# using it, which os.makedirs(exist_ok=True) does not protect against on its
+# own. Kept at module level (rather than on Trainer) so Trainer instances
+# stay picklable for joblib's process-based Parallel backend used elsewhere.
+_FOLD_LOCKS: dict[str, threading.Lock] = {}
+_FOLD_LOCKS_GUARD = threading.Lock()
+
+
+def _fold_lock(folder: str) -> threading.Lock:
+    with _FOLD_LOCKS_GUARD:
+        lock = _FOLD_LOCKS.get(folder)
+        if lock is None:
+            lock = threading.Lock()
+            _FOLD_LOCKS[folder] = lock
+        return lock
 
 
 def _assign_bin(timestamp, bins: list[datetime.datetime]) -> int:
@@ -300,8 +321,10 @@ class Trainer(Fit):
                 folder = os.path.join(
                     self._folder, str(y_series.name), split_idx.isoformat()
                 )
-                new_folder = not os.path.exists(folder)
-                os.makedirs(folder, exist_ok=True)
+                fold_lock = _fold_lock(folder)
+                with fold_lock:
+                    new_folder = not os.path.exists(folder)
+                    os.makedirs(folder, exist_ok=True)
                 trial_file = os.path.join(folder, _TRIAL_FILENAME)
                 if os.path.exists(trial_file):
                     with open(trial_file, encoding="utf8") as handle:
@@ -331,7 +354,13 @@ class Trainer(Fit):
                     y_train = y_train[-len(x_train) :]
                     if len(y_train.unique()) <= 1:
                         if new_folder:
-                            os.removedirs(folder)
+                            with fold_lock:
+                                try:
+                                    os.removedirs(folder)
+                                except OSError:
+                                    # Another thread may have already removed
+                                    # it, or written into it in the meantime.
+                                    pass
                         logging.warning("Y train only contains 1 unique datapoint.")
                         # return _BAD_OUTPUT, -_BAD_OUTPUT
                         # return _BAD_OUTPUT, -_BAD_OUTPUT
@@ -518,7 +547,13 @@ class Trainer(Fit):
                     print(str(exc))
                     logging.warning(str(exc))
                     if new_folder:
-                        os.removedirs(folder)
+                        with fold_lock:
+                            try:
+                                os.removedirs(folder)
+                            except OSError:
+                                # Another thread may have already removed
+                                # it, or written into it in the meantime.
+                                pass
                     # return _BAD_OUTPUT, -_BAD_OUTPUT
                     # return _BAD_OUTPUT, -_BAD_OUTPUT
                     return -_BAD_OUTPUT
@@ -815,6 +850,12 @@ class Trainer(Fit):
                     print(f"\nModel {folder} failed:\n{str(exc)}")
                     if isinstance(exc, AttributeError):
                         raise exc
+                except KeyError as exc:
+                    print(
+                        f"\nDIAG KeyError in column={column!r} folder={folder!r}: {exc}",
+                        flush=True,
+                    )
+                    raise exc
 
                 return group
 

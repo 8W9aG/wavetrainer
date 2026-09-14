@@ -1,12 +1,14 @@
 """Tests for the trainer class."""
 import datetime
+import os
 import random
 import tempfile
+import threading
 import unittest
 
 import pandas as pd
 
-from wavetrainer.trainer import Trainer
+from wavetrainer.trainer import Trainer, _fold_lock
 from wavetrainer.model_type import QUANTILE_KEY
 
 
@@ -61,6 +63,44 @@ class TestTrainer(unittest.TestCase):
             df = trainer.transform(df)
             print("df:")
             print(df)
+
+    def test_concurrent_fold_folder_creation(self):
+        # Regression test: optuna runs trials for the same walk-forward
+        # fold concurrently across threads (study.optimize(n_jobs>1)), and
+        # those trials share the same fold folder path. Creating
+        # (os.makedirs) and tearing down (os.removedirs) that folder used
+        # to race, raising FileExistsError/FileNotFoundError even though
+        # os.makedirs was called with exist_ok=True, because one thread
+        # could remove the directory out from under another thread that
+        # had just created or was still using it.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            folder = os.path.join(tmpdir, "some_column", "2022-01-01T00:00:00")
+
+            errors = []
+
+            def worker():
+                for _ in range(200):
+                    try:
+                        fold_lock = _fold_lock(folder)
+                        with fold_lock:
+                            new_folder = not os.path.exists(folder)
+                            os.makedirs(folder, exist_ok=True)
+                        if new_folder:
+                            with fold_lock:
+                                try:
+                                    os.removedirs(folder)
+                                except OSError:
+                                    pass
+                    except OSError as exc:  # pragma: no cover - failure path
+                        errors.append(exc)
+
+            threads = [threading.Thread(target=worker) for _ in range(16)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual([], errors)
 
     def test_quantile_trainer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
