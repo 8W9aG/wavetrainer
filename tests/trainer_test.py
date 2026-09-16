@@ -41,6 +41,48 @@ class TestTrainer(unittest.TestCase):
             print("df:")
             print(df)
 
+    def test_transform_columns_restricts_to_the_given_trained_targets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, allowed_models={"catboost"})
+            x_data = [i for i in range(101)]
+            x_index = [datetime.datetime(2022, 1, 1) + datetime.timedelta(days=i) for i in range(len(x_data))]
+            df = pd.DataFrame(
+                data={
+                    "column1": x_data,
+                    "column2": [(x * random.random()) + random.random() for x in x_data],
+                    "column3": [int(((x / random.random()) - random.random()) * 1000.0) for x in x_data],
+                },
+                index=x_index,
+            )
+            df["column3"] = df["column3"].astype('category')
+            y = pd.DataFrame(
+                data={
+                    "y": [x % 2 == 0 for x in x_data],
+                    "y2": [(x + 2) % 3 == 0 for x in x_data],
+                },
+                index=df.index,
+            )
+            trainer.fit(df, y=y)
+
+            restricted = trainer.transform(df, columns=["y"])
+            new_cols = [c for c in restricted.columns if c not in df.columns]
+            self.assertTrue(any(c.startswith("y_") for c in new_cols))
+            self.assertFalse(any(c.startswith("y2_") for c in new_cols))
+
+            # An unrecognised name is silently ignored, not an error --
+            # same tolerance ignore_no_dates already gives a listed
+            # folder with no trained dates.
+            unknown_only = trainer.transform(df, columns=["not_a_real_column"])
+            self.assertEqual(
+                sorted(unknown_only.columns), sorted(df.columns)
+            )
+
+            # columns=None (the default) still processes everything.
+            full = trainer.transform(df)
+            full_new_cols = [c for c in full.columns if c not in df.columns]
+            self.assertTrue(any(c.startswith("y_") for c in full_new_cols))
+            self.assertTrue(any(c.startswith("y2_") for c in full_new_cols))
+
     def test_trainer_dt_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, dt_column="dt_column", allowed_models={"catboost"})

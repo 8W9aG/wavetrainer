@@ -758,8 +758,20 @@ class Trainer(Fit):
         optimistic: bool = False,
         ignore_no_dates: bool = False,
         n_jobs: int = -1,
+        columns: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Predict the expected values of the data running columns in parallel."""
+        """Predict the expected values of the data running columns in parallel.
+
+        `columns`, when given, restricts inference to just these trained
+        column names instead of every column found under `self._folder`.
+        A caller that already knows some columns' answers by other means
+        (e.g. a known-not-happening event) can skip paying for their
+        inference entirely, rather than compute them and discard the
+        result. Unrecognised names are silently ignored, same as
+        `ignore_no_dates` already does for a listed folder with no
+        trained dates -- this only ever narrows the existing on-disk
+        set, never widens it.
+        """
         input_df = df.copy()
         df = df.reindex(sorted(df.columns), axis=1)
         feature_columns = df.columns.values
@@ -896,7 +908,12 @@ class Trainer(Fit):
             return df_out[new_cols]
 
         # --- PARALLEL EXECUTION ---
-        columns_to_process = os.listdir(self._folder)
+        all_columns = os.listdir(self._folder)
+        columns_to_process = (
+            all_columns
+            if columns is None
+            else [c for c in columns if c in set(all_columns)]
+        )
 
         # Wrap the Parallel call in tqdm and set return_as="generator"
         parallel_results = list(
