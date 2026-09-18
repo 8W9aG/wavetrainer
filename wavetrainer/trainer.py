@@ -732,12 +732,40 @@ class Trainer(Fit):
                         fig = optuna.visualization.plot_param_importances(
                             study, target=lambda t: t.values[0], target_name=target_name
                         )
-                        fig.write_image(
-                            os.path.join(column_dir, f"{target_name}_frontier.png"),
-                            format="png",
-                            width=800,
-                            height=600,
+                        # fig.write_image() renders via kaleido, which
+                        # launches its own headless Chromium subprocess
+                        # with no timeout of its own -- confirmed for
+                        # real: this hung indefinitely (7+ hours, every
+                        # thread idle, zero forward progress) on a real
+                        # training run, and the `except RuntimeError`
+                        # below can't catch a hang, only a raised
+                        # exception. Run it on a daemon thread with a
+                        # bounded join instead: a stuck render gets
+                        # abandoned (this one diagnostic PNG is simply
+                        # skipped) rather than blocking every remaining
+                        # column's training forever. `daemon=True` also
+                        # means a genuinely wedged render thread can't
+                        # block the process from exiting later, either.
+                        image_path = os.path.join(
+                            column_dir, f"{target_name}_frontier.png"
                         )
+                        render_thread = threading.Thread(
+                            target=fig.write_image,
+                            kwargs={
+                                "file": image_path,
+                                "format": "png",
+                                "width": 800,
+                                "height": 600,
+                            },
+                            daemon=True,
+                        )
+                        render_thread.start()
+                        render_thread.join(timeout=30)
+                        if render_thread.is_alive():
+                            print(
+                                f"{target_name} frontier plot render exceeded "
+                                "30s, skipping (kaleido render abandoned)."
+                            )
                     except RuntimeError as exc:
                         print(str(exc))
 
