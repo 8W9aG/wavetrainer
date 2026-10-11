@@ -5,6 +5,7 @@
 from catboost import CatBoostClassifier  # type: ignore
 
 from .catboost_kwargs import handle_fit_kwargs
+from .catboost_lock import CATBOOST_LOCK
 
 
 class CatBoostClassifierWrapper(CatBoostClassifier):
@@ -12,4 +13,5 @@ class CatBoostClassifierWrapper(CatBoostClassifier):
 
     def fit(self, *args, **kwargs):
         args, kwargs = handle_fit_kwargs(*args, **kwargs)
-        return super().fit(*args, **kwargs)
+        with CATBOOST_LOCK:
+            return super().fit(*args, **kwargs)

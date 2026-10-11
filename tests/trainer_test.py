@@ -2,14 +2,66 @@
 import datetime
 import os
 import random
+import signal
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
+import optuna
 import pandas as pd
 
-from wavetrainer.trainer import Trainer, _fold_lock
+from wavetrainer.trainer import Trainer
+from wavetrainer.trial import TrialObjective, fold_lock
 from wavetrainer.model_type import QUANTILE_KEY
+from wavetrainer.trial_pool import journal_storage
+
+
+class _CrashingObjective(TrialObjective):
+    """Kills its worker process on trial 2, the way a segfault would."""
+
+    def __call__(self, trial):
+        if trial.number == 2:
+            os._exit(139)
+        return super().__call__(trial)
+
+
+def _parallel_data(days=101):
+    x_data = list(range(days))
+    x_index = [datetime.datetime(2022, 1, 1) + datetime.timedelta(days=i) for i in x_data]
+    df = pd.DataFrame(
+        data={
+            "column1": x_data,
+            "column2": [(x * random.random()) + random.random() for x in x_data],
+            # Categorical, so workers see codes backed by a memory map.
+            "column3": pd.Categorical([str(x % 4) for x in x_data]),
+        },
+        index=x_index,
+    )
+    y = pd.DataFrame(data={"y": [x % 2 == 0 for x in x_data]}, index=df.index)
+    return df, y
+
+
+def _load_study(folder, column="y"):
+    return optuna.load_study(
+        study_name="wavetrain",
+        storage=journal_storage(os.path.join(folder, column, "study.journal")),
+    )
+
+
+def _fit_with_deadline(trainer, df, y, seconds=900):
+    # Fit stays on the main thread (it plots with matplotlib), so a hang is
+    # turned into a failure with an alarm rather than a watchdog thread.
+    def _hung(signum, frame):  # pragma: no cover - failure path
+        raise AssertionError("Trainer.fit hung")
+
+    previous = signal.signal(signal.SIGALRM, _hung)
+    signal.alarm(seconds)
+    try:
+        trainer.fit(df, y=y)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 class TestTrainer(unittest.TestCase):
@@ -123,12 +175,12 @@ class TestTrainer(unittest.TestCase):
             def worker():
                 for _ in range(200):
                     try:
-                        fold_lock = _fold_lock(folder)
-                        with fold_lock:
+                        lock = fold_lock(folder)
+                        with lock:
                             new_folder = not os.path.exists(folder)
                             os.makedirs(folder, exist_ok=True)
                         if new_folder:
-                            with fold_lock:
+                            with lock:
                                 try:
                                     os.removedirs(folder)
                                 except OSError:
@@ -199,3 +251,71 @@ class TestTrainer(unittest.TestCase):
             df = trainer.transform(df)
             print("df:")
             print(df)
+
+    def test_trainer_parallel(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, allowed_models={"catboost"}, n_jobs=2)
+            df, y = _parallel_data()
+            _fit_with_deadline(trainer, df, y)
+
+            study = _load_study(tmpdir)
+            first_idx = min(t.user_attrs["idx"] for t in study.trials)
+            initial = [t for t in study.trials if t.user_attrs["idx"] == first_idx]
+            # The first batch of trials runs in workers and is split across
+            # them, but the total is still the requested number of trials.
+            self.assertEqual(5, len(initial))
+            self.assertNotIn(optuna.trial.TrialState.RUNNING, [t.state for t in study.trials])
+            # The shared copy of the frame is cleaned up.
+            self.assertEqual([], [f for f in os.listdir(tmpdir) if f.startswith(".wavetrainer-frame")])
+
+            out = trainer.transform(df)
+            self.assertIn("y_prediction", out.columns)
+
+    def test_trainer_parallel_resumes_sequential_study(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            df, y = _parallel_data()
+            cutoff = datetime.datetime(2022, 3, 25)
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=4, allowed_models={"catboost"}, cutoff_dt=cutoff)
+            trainer.fit(df, y=y)
+            sqlite_study = optuna.load_study(
+                study_name="wavetrain",
+                storage=f"sqlite:///{tmpdir}/y/study.db",
+            )
+            before = [(t.number, t.value, t.user_attrs.get("idx")) for t in sqlite_study.trials]
+            self.assertFalse(os.path.exists(os.path.join(tmpdir, "y", "study.journal")))
+
+            # Resume in parallel on more data, which adds new folds.
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=4, allowed_models={"catboost"}, n_jobs=2)
+            _fit_with_deadline(trainer, df, y)
+            study = _load_study(tmpdir)
+            after = [(t.number, t.value, t.user_attrs.get("idx")) for t in study.trials]
+            self.assertEqual(before, after[: len(before)])
+            self.assertGreater(len(after), len(before))
+
+            # Once a column has a journal, sequential runs keep using it.
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=4, allowed_models={"catboost"})
+            study, journal_file = trainer._provide_study("y")
+            self.assertIsNotNone(journal_file)
+            self.assertEqual(len(after), len(study.trials))
+            trainer.fit(df, y=y)
+            self.assertEqual(len(after), len(_load_study(tmpdir).trials))
+            self.assertIn("y_prediction", trainer.transform(df).columns)
+
+    def test_trainer_parallel_survives_worker_crash(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, allowed_models={"catboost"}, n_jobs=2)
+            df, y = _parallel_data()
+            with mock.patch("wavetrainer.trainer.TrialObjective", _CrashingObjective):
+                with self.assertLogs(level="ERROR") as logs:
+                    _fit_with_deadline(trainer, df, y)
+            self.assertTrue(any("exit code 139" in line for line in logs.output))
+
+            study = _load_study(tmpdir)
+            states = [t.state for t in study.trials]
+            self.assertEqual(optuna.trial.TrialState.FAIL, study.trials[2].state)
+            self.assertNotIn(optuna.trial.TrialState.RUNNING, states)
+            # The crashed trial's share was rerun, so the first batch still
+            # produced the requested number of trials.
+            self.assertEqual(5, sum(1 for t in study.trials[:5]))
+            self.assertGreaterEqual(states.count(optuna.trial.TrialState.COMPLETE), 4)
+            self.assertIn("y_prediction", trainer.transform(df).columns)

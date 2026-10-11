@@ -13,7 +13,6 @@ from ..model_type import ModelType, determine_model_type
 from .catboost.catboost_model import CatboostModel
 from .lightgbm.lightgbm_model import LightGBMModel
 from .model import PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX, Model
-from .tabpfn.tabpfn_model import TabPFNModel
 from .xgboost.xgboost_model import XGBoostModel
 
 _MODEL_ROUTER_FILE = "model_router.json"
@@ -21,7 +20,6 @@ _MODEL_KEY = "model"
 _FALSE_POSITIVE_REDUCTION_STEPS_KEY = "false_positive_reduction_steps"
 _MODELS = {
     CatboostModel.name(): CatboostModel,
-    TabPFNModel.name(): TabPFNModel,
     XGBoostModel.name(): XGBoostModel,
     LightGBMModel.name(): LightGBMModel,
 }

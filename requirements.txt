@@ -9,11 +9,9 @@ catboost>=1.2.7
 venn-abers==1.4.6
 pytz>=2025.1
 torch>=2.6.0
-tabpfn>=2.0.6
 pytest-is-running>=1.5.1
 xgboost>=3.0.0
 jax>=0.6.1
-tabpfn_extensions>=0.0.4
 hyperopt>=0.2.7
 pycaleva>=0.8.2
 lightgbm>=4.6.0
@@ -23,3 +21,4 @@ matplotlib>=3.10.1
 pyarrow>=19.0.1
 scores>=2.3.0
 xarray>=2025.11.0
+filelock>=3.16.0

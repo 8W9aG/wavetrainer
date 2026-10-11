@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long
 import json
 import os
+import tempfile
 from typing import Self
 
 import optuna
@@ -15,6 +16,7 @@ from ...model_type import ModelType, determine_model_type
 from ..model import (PREDICTION_COLUMN, PROBABILITY_COLUMN_PREFIX,
                      QUANTILE_COLUMN_PREFIX, QUANTILES, Model)
 from .catboost_classifier_wrap import CatBoostClassifierWrapper
+from .catboost_lock import CATBOOST_LOCK
 from .catboost_regressor_wrap import CatBoostRegressorWrapper
 
 _MODEL_FILENAME = "model.cbm"
@@ -34,6 +36,29 @@ _FOCALLOSS_LOSS_FUNCTION = "focalloss"
 _GAMMA_KEY = "focalloss_gamma"
 _ALPHA_KEY = "focalloss_alpha"
 _BORDER_COUNT_KEY = "border_count"
+_DUMP_INFERENCE_ENV = "WAVETRAINER_DUMP_INFERENCE"
+_DEFAULT_DUMP_INFERENCE_PATH = "last_catboost_inference.parquet"
+
+
+def _dump_inference(df: pd.DataFrame) -> None:
+    """Write the inference frame to disk if enabled via the environment."""
+    dump_path = os.environ.get(_DUMP_INFERENCE_ENV)
+    if not dump_path:
+        return
+    if dump_path == "1":
+        dump_path = _DEFAULT_DUMP_INFERENCE_PATH
+    dump_dir = os.path.dirname(os.path.abspath(dump_path))
+    fd, tmp_path = tempfile.mkstemp(
+        dir=dump_dir, prefix=".last_catboost_inference.", suffix=".parquet.tmp"
+    )
+    os.close(fd)
+    try:
+        df.to_parquet(tmp_path)
+        os.replace(tmp_path, dump_path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 class CatboostModel(Model):
@@ -100,21 +125,23 @@ class CatboostModel(Model):
             }
 
         catboost = self._provide_catboost()
-        importances = catboost.get_feature_importance(prettified=True)
+        with CATBOOST_LOCK:
+            importances = catboost.get_feature_importance(prettified=True)
         global_importances = importances_to_dict(importances)  # type: ignore
         row_importances = []
         if df is not None:
             for _, row in df.iterrows():
                 row_df = row.to_frame().T
-                pred_pool = Pool(
-                    row_df,
-                    cat_features=row_df.select_dtypes(
-                        include="category"
-                    ).columns.tolist(),
-                )
-                importances = catboost.get_feature_importance(
-                    data=pred_pool, prettified=True
-                )
+                with CATBOOST_LOCK:
+                    pred_pool = Pool(
+                        row_df,
+                        cat_features=row_df.select_dtypes(
+                            include="category"
+                        ).columns.tolist(),
+                    )
+                    importances = catboost.get_feature_importance(
+                        data=pred_pool, prettified=True
+                    )
                 row_importances.append(importances_to_dict(importances))  # type: ignore
         return global_importances, row_importances
 
@@ -177,7 +204,8 @@ class CatboostModel(Model):
         ) as handle:
             self._categorical_features = json.load(handle)
         catboost = self._provide_catboost()
-        catboost.load_model(os.path.join(folder, _MODEL_FILENAME))
+        with CATBOOST_LOCK:
+            catboost.load_model(os.path.join(folder, _MODEL_FILENAME))
 
     def save(self, folder: str, trial: optuna.Trial | optuna.trial.FrozenTrial) -> None:
         with open(
@@ -207,7 +235,8 @@ class CatboostModel(Model):
         ) as handle:
             json.dump(self._categorical_features, handle)
         catboost = self._provide_catboost()
-        catboost.save_model(os.path.join(folder, _MODEL_FILENAME))
+        with CATBOOST_LOCK:
+            catboost.save_model(os.path.join(folder, _MODEL_FILENAME))
         trial.set_user_attr(_BEST_ITERATION_KEY, self._best_iteration)
 
     def fit(
@@ -226,25 +255,29 @@ class CatboostModel(Model):
             x: True for x in df.select_dtypes(include="category").columns.tolist()
         }
 
-        train_pool = Pool(
-            df,
-            label=y,
-            weight=w,
-            cat_features=df.select_dtypes(include="category").columns.tolist(),
-        )
-        eval_pool = (
-            Pool(
-                eval_x,
-                label=eval_y,
-                cat_features=eval_x.select_dtypes(include="category").columns.tolist(),
+        with CATBOOST_LOCK:
+            train_pool = Pool(
+                df,
+                label=y,
+                weight=w,
+                cat_features=df.select_dtypes(include="category").columns.tolist(),
             )
-            if eval_x is not None
-            else None
-        )
+            eval_pool = (
+                Pool(
+                    eval_x,
+                    label=eval_y,
+                    cat_features=eval_x.select_dtypes(
+                        include="category"
+                    ).columns.tolist(),
+                )
+                if eval_x is not None
+                else None
+            )
         if eval_pool is None:
             print("Eval Pool is null")
         else:
             print("Has Eval Pool")
+        # The wrapper's fit takes CATBOOST_LOCK itself, so it must not be held here.
         catboost.fit(
             train_pool,
             early_stopping_rounds=self._early_stopping_rounds,
@@ -259,17 +292,24 @@ class CatboostModel(Model):
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        df.to_parquet("last_catboost_inference.parquet")
+        _dump_inference(df)
         for categorical_feature_column in self._categorical_features.keys():
             df[categorical_feature_column] = df[categorical_feature_column].astype(
                 "category"
             )
-        pred_pool = Pool(
-            df,
-            cat_features=df.select_dtypes(include="category").columns.tolist(),
-        )
         catboost = self._provide_catboost()
-        pred = catboost.predict(pred_pool, thread_count=1)
+        with CATBOOST_LOCK:
+            pred_pool = Pool(
+                df,
+                cat_features=df.select_dtypes(include="category").columns.tolist(),
+            )
+            pred = catboost.predict(pred_pool, thread_count=1)
+            proba = (
+                catboost.predict_proba(pred_pool)  # type: ignore
+                if self._model_type
+                not in [ModelType.REGRESSION, ModelType.QUANTILE_REGRESSION]
+                else None
+            )
         if self._model_type == ModelType.QUANTILE_REGRESSION:
             df = pd.DataFrame(
                 index=df.index,
@@ -285,11 +325,7 @@ class CatboostModel(Model):
                     PREDICTION_COLUMN: pred.flatten(),
                 },
             )
-        if self._model_type not in [
-            ModelType.REGRESSION,
-            ModelType.QUANTILE_REGRESSION,
-        ]:
-            proba = catboost.predict_proba(pred_pool)  # type: ignore
+        if proba is not None:
             for i in range(proba.shape[1]):
                 df[f"{PROBABILITY_COLUMN_PREFIX}{i}"] = proba[:, i]
         return df

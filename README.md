@@ -25,11 +25,9 @@ Python 3.11.6:
 - [venn-abers](https://github.com/ip200/venn-abers)
 - [pytz](https://pythonhosted.org/pytz/)
 - [torch](https://pytorch.org/)
-- [tabpfn](https://github.com/PriorLabs/TabPFN)
 - [pytest-is-running](https://github.com/adamchainz/pytest-is-running)
 - [xgboost](https://xgboost.readthedocs.io/en/release_3.0.0/)
 - [jax](https://github.com/jax-ml/jax)
-- [tabpfn_extensions](https://github.com/PriorLabs/tabpfn-extensions)
 - [hyperopt](https://github.com/hyperopt/hyperopt)
 - [pycaleva](https://github.com/MartinWeigl/pycaleva)
 - [lightgbm](https://github.com/microsoft/LightGBM)
@@ -39,6 +37,7 @@ Python 3.11.6:
 - [pyarrow](https://arrow.apache.org/docs/python/index.html)
 - [scores](https://scores.readthedocs.io/en/stable/)
 - [xarray](https://docs.xarray.dev/en/stable/)
+- [filelock](https://py-filelock.readthedocs.io/en/latest/)
 
 ## Raison D'être :thought_balloon:
 
@@ -97,6 +96,16 @@ wavetrainer = wavetrainer.fit(X, y=Y)
 
 This will save it to the folder `my_wavetrain`.
 
+#### Parallel trials
+
+Passing `n_jobs` greater than 1 (or a negative value, which counts back from the number of CPUs as in joblib) runs the Optuna trials in that many worker processes. With `n_jobs=1`, the default, trials run one at a time in the calling process.
+
+- Workers are started with `spawn`, so a script that trains in parallel must guard its entry point with `if __name__ == "__main__":`.
+- Parallel studies are stored in `study.journal` next to `study.db`. The first parallel run on a column copies an existing `study.db` into the journal, and from then on the journal is used whatever `n_jobs` is. `study.db` and its sampler (renamed `sampler.pkl.sqlite`) are left as a backup.
+- The training frame is written once to a hidden `.wavetrainer-frame-*.joblib` file in the training folder and memory-mapped by the workers. It is removed when `fit` returns.
+- If a worker dies (for example, a segfault in native code), the failure is logged, its running trial is marked as failed, its remaining trials are given to a new worker, and training carries on.
+- Each worker gets its own GPU when there are at least as many GPUs as workers. Otherwise the workers train on the CPU. Saving the final model for each walk-forward fold runs in the calling process, on the GPU if it has one.
+
 ### Load
 
 To load a trainer (as well as its composite states):
@@ -129,6 +138,15 @@ preds = wavetrainer.predict(X)
 ```
 
 `preds` will now contain both the predictions and the probabilities associated with those predictions.
+
+### Debugging
+
+Set the `WAVETRAINER_DUMP_INFERENCE` environment variable to snapshot the input frame of each CatBoost inference to a parquet file. It is unset (disabled) by default, since the write is expensive when predicting over many columns.
+
+- `WAVETRAINER_DUMP_INFERENCE=1` writes to `last_catboost_inference.parquet` in the current directory.
+- `WAVETRAINER_DUMP_INFERENCE=/path/to/file.parquet` writes to that path.
+
+Each write goes to a temporary file that is then atomically moved into place, so concurrent workers never leave a partially written file; the last complete write wins.
 
 ## License :memo:
 

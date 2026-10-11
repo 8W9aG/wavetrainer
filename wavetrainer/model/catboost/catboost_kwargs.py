@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from catboost import Pool  # type: ignore
 
+from .catboost_lock import CATBOOST_LOCK
+
 ORIGINAL_X_ARG_KEY = "original_x"
 EVAL_SET_ARG_KEY = "eval_set"
 CAT_FEATURES_ARG_KEY = "cat_features"
@@ -43,11 +45,12 @@ def handle_fit_kwargs(*args, **kwargs) -> tuple[tuple[Any, ...], dict[str, Any]]
 
         if eval_x is not None:
             eval_x = eval_x[included_columns]
-            kwargs[EVAL_SET_ARG_KEY] = Pool(
-                eval_x,
-                label=eval_y,
-                cat_features=cat_features,
-            )
+            with CATBOOST_LOCK:
+                kwargs[EVAL_SET_ARG_KEY] = Pool(
+                    eval_x,
+                    label=eval_y,
+                    cat_features=cat_features,
+                )
 
         del kwargs[ORIGINAL_X_ARG_KEY]
 
