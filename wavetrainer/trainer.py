@@ -105,6 +105,7 @@ class Trainer(TrainerInference, Fit):
         self._cached_models = {}
         self._cached_selectors = {}
         self._cached_calibrators = {}
+        self._cached_fold_dates = {}
 
     def _provide_study(self, column: str) -> tuple[optuna.Study, str | None]:
         return provide_study(self._folder, column, self._n_jobs, self._random_mix_ratio)

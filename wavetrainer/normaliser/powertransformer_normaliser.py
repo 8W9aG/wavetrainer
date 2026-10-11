@@ -7,14 +7,12 @@ import warnings
 from typing import Self
 
 import joblib  # type: ignore
-import numpy as np
 import optuna
 import pandas as pd
 import scipy  # type: ignore
 from sklearn.exceptions import InconsistentVersionWarning  # type: ignore
 from sklearn.preprocessing import PowerTransformer  # type: ignore
 
-from ..exceptions import WavetrainException
 from .normaliser import Normaliser
 
 _POWERTRANSFORMER_REDUCER_FILE = "power_transformer_normaliser.joblib"
@@ -82,54 +80,14 @@ class PowerTransformerNormaliser(Normaliser):
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                df[self._pt_cols].values[:] = np.nan_to_num(
-                    self._pt.transform(df[self._pt_cols].to_numpy()),
-                    nan=0.0,
-                    posinf=0.0,
-                    neginf=0.0,
-                )
-        except ValueError as exc:
-            # --- Diagnostic Check ---
-            subset = df[self._pt_cols]
-            inf_mask = np.isinf(subset)
-
-            # Build a single error message string
-            log_lines = [
-                str(exc),
-                "\n" + "=" * 50,
-                "🚨 DATA VALIDATION ERROR DIAGNOSTIC 🚨",
-            ]
-
-            bad_cols = [col for col in subset.columns if inf_mask[col].any()]
-            if bad_cols:
-                log_lines.append(
-                    f"-> Found infinities (inf or -inf) in columns: {bad_cols}"
-                )
-                for col in bad_cols:
-                    log_lines.append(f"\nOffending values in '{col}':")
-                    log_lines.append(str(subset[col][inf_mask[col]]))
-            else:
-                log_lines.append(
-                    "-> No strict infinities found. Values are likely exceeding float64 capacity."
-                )
-                log_lines.append(
-                    "\nTop 5 largest absolute values by column to help you hunt it down:"
-                )
-                log_lines.append(
-                    str(subset.abs().max().sort_values(ascending=False).head(5))
-                )
-
-            log_lines.append("=" * 50 + "\n")
-
-            full_error_msg = "\n".join(log_lines)
-
-            # 1. Try to print and force flush the buffer
-            print(full_error_msg, flush=True)
-
-            # 2. Attach the message to the exception so it survives the Loky crash
-            raise WavetrainException(full_error_msg) from exc
-
+        # Deliberately a no-op. This used to assign the transformed values with
+        # `df[self._pt_cols].values[:] = ...`, but `df[cols]` is a copy, so on
+        # pandas 2 the result was computed and thrown away and `df` came back
+        # unchanged (on pandas 3 the same line raises, as the copy is
+        # read-only). Training goes through here too, via fit_transform, so
+        # every saved model was trained and evaluated on untransformed
+        # features. Applying the transform for real would change what the
+        # models see and need them all retrained, so it stays inert; fit,
+        # save and load still run so existing folders load and new ones keep
+        # the same files.
         return df

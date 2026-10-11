@@ -1,5 +1,6 @@
 """Tests for the trainer class."""
 import datetime
+import json
 import os
 import random
 import signal
@@ -89,7 +90,9 @@ class TestTrainer(unittest.TestCase):
                 index=df.index,
             )
             trainer.fit(df, y=y)
-            df = trainer.transform(df)
+            # transform() runs in-process by default, so ask for workers here
+            # to keep the per-column parallel path tested.
+            df = trainer.transform(df, n_jobs=-1)
             print("df:")
             print(df)
 
@@ -134,6 +137,115 @@ class TestTrainer(unittest.TestCase):
             full_new_cols = [c for c in full.columns if c not in df.columns]
             self.assertTrue(any(c.startswith("y_") for c in full_new_cols))
             self.assertTrue(any(c.startswith("y2_") for c in full_new_cols))
+
+    def test_transform_picks_up_a_newly_trained_fold(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=3, allowed_models={"catboost"})
+            x_data = [i for i in range(101)]
+            x_index = [datetime.datetime(2022, 1, 1) + datetime.timedelta(days=i) for i in range(len(x_data))]
+            df = pd.DataFrame(
+                data={
+                    "column1": x_data,
+                    "column2": [(x * random.random()) + random.random() for x in x_data],
+                },
+                index=x_index,
+            )
+            y = pd.DataFrame(data={"y": [x % 2 == 0 for x in x_data]}, index=df.index)
+            column_path = os.path.join(tmpdir, "y")
+
+            def folds_on_disk():
+                return sorted(
+                    x for x in os.listdir(column_path)
+                    if os.path.isdir(os.path.join(column_path, x))
+                    and os.listdir(os.path.join(column_path, x))
+                )
+
+            def used_folds(frame):
+                used = []
+                provide_model = trainer._provide_model
+
+                def spy(folder):
+                    used.append(os.path.basename(folder))
+                    return provide_model(folder)
+
+                with mock.patch.object(trainer, "_provide_model", side_effect=spy):
+                    out = trainer.transform(frame)
+                self.assertIn("y_prediction", out.columns)
+                return sorted(set(used))
+
+            trainer.fit(df.iloc[:60], y=y.iloc[:60])
+            first_folds = folds_on_disk()
+            self.assertTrue(first_folds)
+            self.assertEqual(used_folds(df.iloc[[-1]]), [first_folds[-1]])
+            self.assertEqual(
+                [d.isoformat() for d in trainer._cached_fold_dates[column_path]],
+                first_folds,
+            )
+
+            # A warm call reads the cached listing rather than the fold folders.
+            with mock.patch("wavetrainer.inference.os.listdir", wraps=os.listdir) as listdir:
+                self.assertEqual(used_folds(df.iloc[[-1]]), [first_folds[-1]])
+            self.assertEqual([c.args for c in listdir.call_args_list], [(tmpdir,)])
+
+            # Training more data on the same Trainer saves later folds, and
+            # transform() has to use them rather than a stale listing.
+            trainer.fit(df, y=y)
+            second_folds = folds_on_disk()
+            self.assertGreater(second_folds[-1], first_folds[-1])
+            self.assertEqual(used_folds(df.iloc[[-1]]), [second_folds[-1]])
+
+            # A fresh Trainer on the same folder agrees.
+            fresh = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=3, allowed_models={"catboost"})
+            pd.testing.assert_frame_equal(
+                fresh.transform(df.iloc[[-1]]),
+                trainer.transform(df.iloc[[-1]]),
+                check_exact=True,
+            )
+
+    def test_regression_trials_score_by_r2(self):
+        # Regression trials used to all return a loss of 0.0, so the
+        # optimiser had nothing to tell them apart by.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trainer = Trainer(tmpdir, walkforward_timedelta=datetime.timedelta(days=7), trials=5, allowed_models={"catboost"})
+            x_data = [i for i in range(101)]
+            x_index = [datetime.datetime(2022, 1, 1) + datetime.timedelta(days=i) for i in range(len(x_data))]
+            df = pd.DataFrame(
+                data={
+                    "column1": x_data,
+                    "column2": [(x * random.random()) + random.random() for x in x_data],
+                },
+                index=x_index,
+            )
+            y = pd.DataFrame(
+                data={"y": [float(x) + 2.0 + random.random() for x in x_data]},
+                index=df.index,
+            )
+            trainer.fit(df, y=y)
+
+            column_path = os.path.join(tmpdir, "y")
+            folds = [
+                os.path.join(column_path, x) for x in os.listdir(column_path)
+                if os.path.exists(os.path.join(column_path, x, "trial.json"))
+            ]
+            self.assertTrue(folds)
+            for fold in folds:
+                with open(os.path.join(fold, "trial.json"), encoding="utf8") as handle:
+                    r2, loss = json.load(handle)["output"]
+                with open(os.path.join(fold, "stats.json"), encoding="utf8") as handle:
+                    self.assertEqual(json.load(handle)["R2"], r2)
+                self.assertEqual(loss, -r2)
+
+            # With n_jobs=1 the study is kept in SQLite rather than a journal.
+            study = optuna.load_study(
+                study_name="wavetrain",
+                storage="sqlite:///" + os.path.join(column_path, "study.db"),
+            )
+            values = [
+                t.value for t in study.trials
+                if t.state == optuna.trial.TrialState.COMPLETE
+            ]
+            self.assertGreater(len(set(values)), 1)
+            self.assertNotIn(0.0, values)
 
     def test_trainer_dt_column(self):
         with tempfile.TemporaryDirectory() as tmpdir:

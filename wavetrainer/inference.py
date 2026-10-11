@@ -47,16 +47,23 @@ class TrainerInference:
     _cached_models: dict[str, ModelRouter]
     _cached_selectors: dict[str, Selector]
     _cached_calibrators: dict[str, CalibratorRouter]
+    _cached_fold_dates: dict[str, list[datetime.datetime]]
 
     def transform(
         self,
         df: pd.DataFrame,
         optimistic: bool = False,
         ignore_no_dates: bool = False,
-        n_jobs: int = -1,
+        n_jobs: int = 1,
         columns: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Predict the expected values of the data running columns in parallel.
+        """Predict the expected values of the data.
+
+        `n_jobs` is how many trained columns to infer at once, using joblib's
+        convention (-1 for one per core). It defaults to 1, which runs in this
+        process and so keeps the loaded models cached on this Trainer across
+        calls; worker processes load their own copies and drop them when the
+        call ends. Callers that already run in parallel should leave it at 1.
 
         `columns`, when given, restricts inference to just these trained
         column names instead of every column found under `self._folder`.
@@ -68,7 +75,11 @@ class TrainerInference:
         trained dates -- this only ever narrows the existing on-disk
         set, never widens it.
         """
-        input_df = df.copy()
+        # Only read at the end to restore any dropped input column, and nothing
+        # here writes to the caller's frame, so a reference is enough.
+        input_df = df
+        # Training sorts its columns the same way (Trainer.fit), and the
+        # reducers and models expect the features in that order.
         df = df.reindex(sorted(df.columns), axis=1)
         feature_columns = df.columns.values
         dt_index = (
@@ -83,19 +94,12 @@ class TrainerInference:
             if not os.path.isdir(column_path):
                 return None
 
-            dates = []
-            for date_str in os.listdir(column_path):
-                date_path = os.path.join(column_path, date_str)
-                if not os.path.isdir(date_path) or not os.listdir(date_path):
-                    continue
-                dates.append(datetime.datetime.fromisoformat(date_str))
-
+            dates = self._provide_fold_dates(column_path)
             if not dates:
                 if ignore_no_dates:
                     return None
                 raise ValueError(f"no dates found for {column}.")
 
-            dates = sorted(dates)
             bins: list[datetime.datetime] = sorted(
                 [dt_index.min().to_pydatetime()]
                 + dates
@@ -232,9 +236,13 @@ class TrainerInference:
         if valid_results:
             df = pd.concat([df] + valid_results, axis=1)
 
-        # Ensure no original input columns were dropped
+        # Ensure no original input columns were dropped. Look columns up in a
+        # set: `in df.columns.values` scans the whole array each time (on
+        # pandas 3 it is an Arrow array), which is quadratic in the column
+        # count, about 9s a call at 70,000 columns.
+        output_columns = set(df.columns)
         for col in input_df.columns.values:
-            if col not in df.columns.values:
+            if col not in output_columns:
                 df[col] = input_df[col]
 
         return df
@@ -285,6 +293,30 @@ class TrainerInference:
                     logging.warning(str(exc))
 
         return feature_importances
+
+    def _provide_fold_dates(self, column_path: str) -> list[datetime.datetime]:
+        """The sorted dates of a column's non-empty fold folders.
+
+        Cached because listing every fold folder of every column on every
+        transform() call costs thousands of syscalls, while the folders only
+        change when a fold is trained. fit_trial drops a column's entry when
+        it saves a fold there, so folds trained through this Trainer are
+        picked up; folds another process trains into the same folder are not
+        seen until a new Trainer is made.
+
+        Empty folders are skipped because fit_trial creates a fold's folder
+        before fitting and only fills it when the fold is saved, so an empty
+        one has no model to load.
+        """
+        if column_path not in self._cached_fold_dates:
+            dates = []
+            for date_str in os.listdir(column_path):
+                date_path = os.path.join(column_path, date_str)
+                if not os.path.isdir(date_path) or not os.listdir(date_path):
+                    continue
+                dates.append(datetime.datetime.fromisoformat(date_str))
+            self._cached_fold_dates[column_path] = sorted(dates)
+        return self._cached_fold_dates[column_path]
 
     def _provide_reducer(self, folder: str) -> CombinedReducer:
         if folder not in self._cached_reducers:

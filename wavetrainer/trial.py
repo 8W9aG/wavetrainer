@@ -264,6 +264,11 @@ def fit_trial(
         stats = {}
         if model_type == ModelType.REGRESSION:
             output = float(r2_score(y_test, y_pred[[PREDICTION_COLUMN]]))
+            # The study minimises the loss, and higher R2 is better. Within a
+            # fold this ranks trials the same as MSE would, but unlike MSE it
+            # doesn't depend on the target's scale, so trials from different
+            # folds can be compared (study.best_trial does that).
+            loss = -output
             print(f"R2: {output}")
             stats["R2"] = output
         elif model_type == ModelType.QUANTILE_REGRESSION:
@@ -343,6 +348,11 @@ def fit_trial(
                     stats,
                     handle,
                 )
+            # transform() caches each column's fold listing; drop it so the
+            # new fold is picked up. This is only needed here: search trials
+            # never save, so they can't change the listing, and the folder
+            # only counts as a fold once it has files in it.
+            trainer._cached_fold_dates.pop(os.path.dirname(folder), None)
 
         # return output, loss
         # return pvalue, loss
